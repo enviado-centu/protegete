@@ -47,7 +47,7 @@ Response:
 ## Tasks
 - [x] T1 — Scaffold `backend/` uv project, ML adapter wrapping `predecir`, `GET /api/health`, tests. Route: delegated (writer trigger: 2+ non-trivial files).
 - [x] T2 — Rules engine (brands AR, homoglyph/Levenshtein lookalikes, brand-in-subdomain, shortener, IP, http), tests. Route: delegated.
-- [ ] T3 — `POST /api/analyze` ensemble + Spanish explanations + CORS + README, tests. Route: delegated.
+- [x] T3 — `POST /api/analyze` ensemble + Spanish explanations + CORS + README, tests. Route: delegated.
 
 ## Acceptance criteria
 - `mercad0pago.com.ar` and `mercadopagoseguro.com` → `danger`, category `impersonation`.
@@ -72,5 +72,8 @@ Strategy: ask-on-risk. Forecast ~450 authored lines. RDD: disabled globally by u
   - Design note: `brand_lookalike` only accepts an exact (distance-0) label match on the registrable domain's own label (e.g. wrong-TLD squatting `mercadopago.xyz`) or on a homoglyph/typo-modified subdomain label; an *unmodified* exact brand name placed in the subdomain (e.g. `mercadopago.login-seguro.xyz`) is left to `brand_embedded`, matching the spec's own example.
   - Open risk (not covered by acceptance tests, flagging for awareness): Levenshtein threshold 1 on short official labels (e.g. "uala", 4 chars) can false-positive on unrelated short words of edit-distance 1 (e.g. hypothetical "sala.com.ar"). Left as-is per the literal spec ("scale by length"); would need a product decision to tighten further (e.g. minimum label length for fuzzy matching).
 
+- T3 done: `app/services/analyzer.py` (ensemble: ML-probability rescale, rule/ML combination with combo bonus, shortener ML cap, whitelist safe cap, category from strongest rule, deduped/capped Spanish reasons, per-category tip), `POST /api/analyze` wired in `app/main.py` with CORS (`allow_origin_regex` for `chrome-extension://*` / `localhost` / `127.0.0.1`, plus `EXTRA_CORS_ORIGINS`), URL validation (strip, empty, >2048 chars, no plausible host → 422) in `app/schemas.py`. `backend/README.md` added (setup, run, env vars, curl example with real captured output, scoring explanation, privacy note). Tests: `backend/tests/{test_analyzer,test_analyze_api}.py` (all acceptance-criteria cases, real-model integration). `uv run pytest -q`: 49 passed. Commit: pending (see next command).
+- Manual verification: started `uv run uvicorn app.main:app --port 8765`, curled `/api/health` (`{"status":"ok","model_version":"4c"}`), `/api/analyze` for `mercad0pago.com.ar` (danger/impersonation), `bit.ly/x` (caution/hidden_destination), `docs.google.com/document` (safe/none), empty URL (422), and a CORS preflight from `chrome-extension://...` (200, `access-control-allow-origin` echoed). Server stopped afterward.
+
 ## Next step
-T3 — ensemble + POST /api/analyze + CORS + README.
+Feature complete (T1-T3 done, all acceptance criteria verified). No further steps planned; open decision gaps noted above (short-brand Levenshtein fuzzy-match risk in `brand_lookalike`) are left for a future product decision, not blocking.

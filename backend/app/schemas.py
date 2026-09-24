@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.services.urlinfo import has_plausible_host
 
 MAX_URL_LENGTH = 2048
 
@@ -11,6 +13,16 @@ class AnalyzeRequest(BaseModel):
     """Body of POST /api/analyze."""
 
     url: str = Field(..., min_length=1, max_length=MAX_URL_LENGTH)
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("url must not be empty")
+        if not has_plausible_host(stripped):
+            raise ValueError("url must have a plausible host")
+        return stripped
 
 
 class MLInfo(BaseModel):
