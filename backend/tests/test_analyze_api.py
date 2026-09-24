@@ -42,6 +42,24 @@ def test_official_domains_are_safe(client, url) -> None:
     assert body["level"] == "safe"
 
 
+def test_short_brand_fuzzy_false_positive_is_fixed(client) -> None:
+    # Regression: "sala.com.ar" is Levenshtein-1 from "uala" but is not a
+    # lookalike; short brands require an exact (post-homoglyph) match.
+    response = client.post("/api/analyze", json={"url": "sala.com.ar"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] != "danger"
+    assert body["category"] != "impersonation"
+
+
+def test_homoglyph_of_short_brand_is_still_danger(client) -> None:
+    response = client.post("/api/analyze", json={"url": "ua1a.com.ar"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] == "danger"
+    assert body["category"] == "impersonation"
+
+
 def test_shortener_is_caution_not_danger(client) -> None:
     response = client.post("/api/analyze", json={"url": "https://bit.ly/x"})
     assert response.status_code == 200

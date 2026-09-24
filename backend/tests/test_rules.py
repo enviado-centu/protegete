@@ -73,6 +73,23 @@ class TestBrandLookalike:
     def test_wrong_tld_exact_label_fires(self) -> None:
         assert "brand_lookalike" in _ids("http://mercadopago.xyz")
 
+    def test_short_typo_of_short_brand_does_not_fire(self) -> None:
+        # Regression: Levenshtein-1 fuzzy matching against short brand labels
+        # (e.g. "uala", "bna") false-positives on unrelated short words.
+        assert "brand_lookalike" not in _ids("http://sala.com.ar")
+        assert "brand_lookalike" not in _ids("http://macra.com.ar")
+        assert "brand_lookalike" not in _ids("http://bma.com.ar")
+
+    def test_homoglyph_exact_match_of_short_brand_still_fires(self) -> None:
+        # Exact match after homoglyph normalization is still allowed for
+        # short brands, only fuzzy (non-zero-distance) matching is gated.
+        hits = {h.id: h for h in evaluate_rules("http://ua1a.com.ar")}
+        assert "brand_lookalike" in hits
+        assert hits["brand_lookalike"].weight == 0.9
+
+    def test_near_typo_of_long_brand_still_fires(self) -> None:
+        assert "brand_lookalike" in _ids("http://mercadopag.com.ar")
+
 
 class TestBrandEmbedded:
     def test_brand_appended_to_registrable_domain_fires(self) -> None:

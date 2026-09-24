@@ -131,8 +131,15 @@ def is_whitelisted(info: UrlInfo) -> bool:
     return info.registrable_domain in ALL_OFFICIAL_DOMAINS
 
 
+# Fuzzy (Levenshtein) matching is only applied when the official brand label
+# is at least this long. Below it, only an exact match after homoglyph
+# normalization counts — otherwise short labels like "uala" or "bna" would
+# fuzzy-match unrelated short words at edit-distance 1 (e.g. "sala", "bma").
+FUZZY_MIN_LABEL_LENGTH = 6
+
+
 def _lookalike_threshold(label: str) -> int:
-    return 1 if len(label) <= 8 else 2
+    return 1 if len(label) <= 9 else 2
 
 
 def _evaluate_brand_lookalike(info: UrlInfo) -> RuleMatch | None:
@@ -155,8 +162,10 @@ def _evaluate_brand_lookalike(info: UrlInfo) -> RuleMatch | None:
                 distance = levenshtein(normalized, official_label)
                 if distance == 0:
                     is_match = allow_exact
-                else:
+                elif len(official_label) >= FUZZY_MIN_LABEL_LENGTH:
                     is_match = distance <= _lookalike_threshold(official_label)
+                else:
+                    is_match = False
                 if is_match:
                     return RuleMatch(
                         id="brand_lookalike",
