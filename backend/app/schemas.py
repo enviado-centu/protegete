@@ -41,6 +41,18 @@ class RuleHit(BaseModel):
     weight: float
 
 
+class Details(BaseModel):
+    """T8: additional machine-readable detail, additive to the base contract.
+
+    `ml_probability` mirrors `ml.probability` (kept here too so a client can
+    read the raw model score without digging into the `ml` sub-object).
+    """
+
+    blacklist: bool
+    whitelist: bool
+    ml_probability: float
+
+
 class AnalyzeResponse(BaseModel):
     """Body of the POST /api/analyze response."""
 
@@ -52,6 +64,7 @@ class AnalyzeResponse(BaseModel):
     tip: str
     ml: MLInfo
     rules: list[RuleHit]
+    details: Details
 
 
 class HealthResponse(BaseModel):

@@ -11,9 +11,55 @@ cd backend
 uv sync
 ```
 
-Requires the sibling `MODULO-PY` folder (the
-trained model + feature extraction code) to be present at the repo root;
-this backend imports it read-only and never modifies it.
+Requires the sibling `MODULO-PY` folder (the trained model, feature
+extraction code, and the `motor/` rules-and-lists package) to be present at
+the repo root; this backend imports it read-only and never modifies it.
+
+## Lists and rules come from MODULO-PY/motor (T8)
+
+The whitelist, blacklist and deterministic rules with human-readable Spanish
+reasons are owned by `MODULO-PY/motor/` (`listas.py`, `reglas.py`), a
+teammate's package, not by this backend. `app/services/motor_adapter.py` is
+the only module that imports it (lazily, read-only, same `sys.path`
+mechanism as the ML model adapter) and exposes a small typed interface to
+`app/services/rules.py`:
+
+- **Whitelist** (`motor/datos/lista_blanca.json`): official brand domains.
+  Short-circuits straight to `safe`, same as before.
+- **Blacklist** (`motor/datos/lista_negra_propia.txt`, plus
+  `motor/datos/lista_negra_feed.txt` if present): known-malicious URLs and
+  domains. Short-circuits straight to `danger` / category `blacklisted`,
+  with a single reason. The feed file is optional and gitignored -- the
+  backend works fine without it (verified in
+  `backend/tests/test_motor_adapter.py`).
+- **Rules** (`motor/reglas.py`): brand mention in host/path, suspicious TLD,
+  scam keywords, IP host, punycode/homoglyph host, shortener, explicit
+  port, "@" hiding the real destination -- each with a ready-made Spanish
+  reason that we reuse verbatim instead of writing our own.
+
+`app/services/rules.py` keeps only what the motor does **not** cover:
+homoglyph/typo (Levenshtein) brand lookalikes (e.g. `mercad0pago.com.ar`,
+`ua1a.com.ar` -- the motor only does exact/substring matching, no homoglyph
+normalization or edit distance), the plain HTTP check, and a small,
+explicitly documented fallback brand list (`GLOBAL_BRANDS` in `rules.py`)
+for global tech brands the motor's Argentine-focused whitelist doesn't
+carry at all (google, paypal, microsoft, apple, netflix, whatsapp,
+instagram, facebook) -- without it, `docs.google.com` would lose its
+whitelist short-circuit. See the module docstring in `rules.py` for the
+full rule-by-rule overlap map.
+
+### Refreshing the blacklist feed
+
+The optional OpenPhish feed is downloaded (not committed) from inside
+`MODULO-PY`, not from this backend:
+
+```bash
+cd ../MODULO-PY
+uv run python -m motor.actualizar_lista_negra
+```
+
+This writes `motor/datos/lista_negra_feed.txt`. The backend picks it up on
+next process start (motor caches its lists in-process).
 
 ## Run
 
@@ -70,7 +116,12 @@ Response:
   "rules": [
     { "id": "brand_lookalike", "weight": 0.9 },
     { "id": "insecure_http", "weight": 0.2 }
-  ]
+  ],
+  "details": {
+    "blacklist": false,
+    "whitelist": false,
+    "ml_probability": 0.5041827088330316
+  }
 }
 ```
 
@@ -79,9 +130,14 @@ The URL scheme is optional (`mercad0pago.com.ar` works). Empty, overlong
 
 `level` is `safe` (score < 0.4), `caution` (0.4-0.7) or `danger` (> 0.7).
 `category` is `impersonation`, `suspicious_domain`, `hidden_destination`,
-`insecure` or `none`.
+`insecure`, `blacklisted` (T8: an exact match in the motor's blacklist) or
+`none`.
 
-## How scoring works (5 lines)
+`details` (T8, additive) is machine-readable, for clients that don't want to
+parse `reasons`/`rules`: `blacklist`/`whitelist` are whether the motor's
+lists matched, and `ml_probability` mirrors `ml.probability`.
+
+## How scoring works
 
 1. The ML probability is rescaled so the model's own 0.90 threshold lands at
    0.70 (the caution/danger boundary), putting both signals on one scale.
@@ -93,14 +149,18 @@ The URL scheme is optional (`mercad0pago.com.ar` works). Empty, overlong
    "safe", since the ML model alone flags some of them.
 5. `category` follows the strongest fired rule; `reasons` combine rule text
    with translated top ML features, deduplicated and capped at four.
-6. Two weak rules look at the *full* URL (host + path + query), which the ML
-   model never sees: `suspicious_tld` (registrable domain's TLD) and
-   `scam_keywords` (words like "verificar"/"homebanking"), both reusing the
-   ML module's own lists. They're low weight and score-capped so they can
-   never combine into "danger" by themselves -- only alongside a stronger
-   rule (e.g. brand impersonation) do they reinforce it. A cautious ML-only
-   reason sentence is added when the model's own probability is at/above its
-   threshold.
+6. Several rules look at the *full* URL (host + path + query), which the ML
+   model never sees: `suspicious_tld` (registrable domain's TLD),
+   `scam_keywords` (words like "verificar"/"homebanking"), `brand_mention`
+   (a bare brand mention in the path), `explicit_port` and `at_symbol`
+   ("@" hiding the real destination host) are weak on their own and
+   score-capped so they can never combine into "danger" by themselves --
+   only alongside a stronger rule (e.g. brand impersonation) do they
+   reinforce it. A cautious ML-only reason sentence is added when the
+   model's own probability is at/above its threshold.
+7. A blacklist hit (T8) short-circuits straight to `danger` / score `1.0` /
+   category `blacklisted`, with a single reason -- symmetric to the
+   whitelist short-circuit to `safe`.
 
 ## Privacy
 

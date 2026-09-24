@@ -82,8 +82,9 @@ def test_missing_url_field_is_422(client) -> None:
 def test_response_shape_matches_contract(client) -> None:
     response = client.post("/api/analyze", json={"url": "http://mercad0pago.com.ar"})
     body = response.json()
-    assert set(body.keys()) == {"url", "level", "score", "category", "reasons", "tip", "ml", "rules"}
+    assert set(body.keys()) == {"url", "level", "score", "category", "reasons", "tip", "ml", "rules", "details"}
     assert set(body["ml"].keys()) == {"probability", "threshold", "flagged", "top_features"}
+    assert set(body["details"].keys()) == {"blacklist", "whitelist", "ml_probability"}
     for rule in body["rules"]:
         assert set(rule.keys()) == {"id", "weight"}
 
@@ -94,16 +95,35 @@ def test_url_without_scheme_is_accepted(client) -> None:
     assert response.json()["level"] == "danger"
 
 
-def test_brand_impersonation_plus_weak_signals_is_danger_with_all_reasons(client) -> None:
+def test_blacklisted_domain_is_danger(client) -> None:
+    # T8 behavior change: "bna-homebanking-verificar.xyz" is a real entry in
+    # MODULO-PY/motor/datos/lista_negra_propia.txt, so it's now a direct
+    # blacklist hit (level "danger", category "blacklisted", a single rule)
+    # instead of the brand_embedded + suspicious_tld + scam_keywords +
+    # insecure_http combination it used to produce pre-T8. Still "danger",
+    # per this task's required acceptance case.
     response = client.post("/api/analyze", json={"url": "http://bna-homebanking-verificar.xyz/login"})
     assert response.status_code == 200
     body = response.json()
     assert body["level"] == "danger"
+    assert body["category"] == "blacklisted"
+    assert [r["id"] for r in body["rules"]] == ["blacklisted"]
+    assert body["details"]["blacklist"] is True
+
+
+def test_brand_impersonation_plus_weak_signals_is_danger_with_all_reasons(client) -> None:
+    # Same scenario as the pre-T8 test above, on a domain that is NOT a
+    # motor blacklist entry, so the brand/tld/keyword/http combination still
+    # runs end-to-end through the real model.
+    response = client.post("/api/analyze", json={"url": "http://mercadopago-clave.xyz/login"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] == "danger"
+    assert body["category"] == "impersonation"
     reasons_text = " ".join(body["reasons"])
-    assert "Banco Nación" in reasons_text
+    assert "Mercado Pago" in reasons_text
     assert ".xyz" in reasons_text
-    assert "homebanking" in reasons_text
-    assert "verificar" in reasons_text
+    assert "clave" in reasons_text or "login" in reasons_text
     assert "HTTP sin cifrado" in reasons_text
 
 
@@ -141,3 +161,24 @@ def test_sala_com_ar_still_not_danger_with_weak_rules_added(client) -> None:
     body = response.json()
     assert body["level"] != "danger"
     assert body["category"] != "impersonation"
+
+
+def test_details_block_matches_whitelist_and_blacklist_flags(client) -> None:
+    whitelisted = client.post("/api/analyze", json={"url": "https://www.bna.com.ar"}).json()
+    assert whitelisted["details"] == {
+        "blacklist": False,
+        "whitelist": True,
+        "ml_probability": whitelisted["ml"]["probability"],
+    }
+
+    blacklisted = client.post(
+        "/api/analyze", json={"url": "http://bna-homebanking-verificar.xyz/login"}
+    ).json()
+    assert blacklisted["details"]["blacklist"] is True
+    assert blacklisted["details"]["whitelist"] is False
+
+
+def test_no_duplicated_reasons_for_a_brand_and_weak_signals(client) -> None:
+    response = client.post("/api/analyze", json={"url": "http://mercadopago-clave.xyz/login"})
+    body = response.json()
+    assert len(body["reasons"]) == len(set(body["reasons"]))

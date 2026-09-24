@@ -9,16 +9,19 @@ Scoring, in five lines (see also backend/README.md):
    in "caution", never "danger" -- the shortener itself isn't proof of harm.
 4. A whitelisted official domain (or any of its subdomains) is force-capped
    to "safe", since the model alone flags some of them (e.g. docs.google.com).
+   A blacklisted URL/domain (T8, from the motor's lists) instead force-caps
+   to "danger" -- it wins over the whitelist check, though the two lists
+   should never overlap in practice.
 5. `category` follows the strongest fired rule; reasons combine rule text
    with translated top ML features, deduplicated, capped at four.
-6. Weak signals (`suspicious_tld`, `scam_keywords`, `insecure_http`) are
-   capped so that, absent a stronger rule and absent an independently
-   confident ML score, they can never combine into "danger" by themselves.
+6. Weak signals (see WEAK_RULE_IDS) are capped so that, absent a stronger
+   rule and absent an independently confident ML score, they can never
+   combine into "danger" by themselves.
 """
 
 from __future__ import annotations
 
-from app.schemas import AnalyzeResponse, MLInfo, RuleHit
+from app.schemas import AnalyzeResponse, Details, MLInfo, RuleHit
 from app.services.ml_model import PhishingModel
 from app.services.rules import RuleMatch, evaluate_rules, is_whitelisted
 from app.services.urlinfo import parse_url
@@ -34,7 +37,10 @@ MAX_REASONS = 4
 # "danger" verdict on their own. When every fired rule is one of these AND
 # the ML model hasn't independently reached the danger boundary on its own,
 # the combined rule-derived score is capped comfortably below DANGER_THRESHOLD.
-WEAK_RULE_IDS = frozenset({"suspicious_tld", "scam_keywords", "insecure_http"})
+# T8: "brand_mention" (motor's marca_path -- a bare brand mention in the
+# path, e.g. a news article) and "explicit_port" (motor's puerto) joined
+# this set; both are new, low-confidence-on-their-own signals from the motor.
+WEAK_RULE_IDS = frozenset({"suspicious_tld", "scam_keywords", "insecure_http", "brand_mention", "explicit_port"})
 WEAK_RULES_ONLY_SCORE_CAP = 0.6
 
 # Cautious, non-quantitative wording: shown only when the ML model's own
@@ -72,6 +78,7 @@ TIPS_BY_CATEGORY: dict[str, str] = {
     "suspicious_domain": "Desconfiá de dominios raros o con direcciones IP: revisá bien antes de ingresar datos.",
     "hidden_destination": "Los links acortados ocultan su destino real: fijate a dónde llevan antes de hacer clic.",
     "insecure": "Evitá ingresar datos personales en sitios sin conexión segura (https).",
+    "blacklisted": "Este sitio fue reportado como fraudulento: no ingreses datos ni sigas navegando en él.",
 }
 DEFAULT_UNSAFE_TIP = "Revisá bien la dirección antes de ingresar datos personales."
 SAFE_TIP = "No se detectaron señales de phishing, pero igual revisá la dirección antes de ingresar datos sensibles."
@@ -136,6 +143,9 @@ def analyze(url: str, model: PhishingModel) -> AnalyzeResponse:
     rules = evaluate_rules(url)
     prediction = model.predict(url)
 
+    blacklisted = any(r.id == "blacklisted" for r in rules)
+    whitelisted = is_whitelisted(info)
+
     ml_score = _ml_derived_score(prediction.probability, prediction.threshold)
     if any(rule.id == "shortener" for rule in rules):
         ml_score = min(ml_score, SHORTENER_ML_CAP)
@@ -155,7 +165,11 @@ def analyze(url: str, model: PhishingModel) -> AnalyzeResponse:
 
     category = max_rule.category if max_rule else ("suspicious_domain" if prediction.flagged else "none")
 
-    if is_whitelisted(info):
+    # T8: a blacklist hit (rules == [blacklisted]) already carries weight 1.0
+    # and category "blacklisted" via max_rule, so score/category are already
+    # correct here. The whitelist cap is only skipped defensively -- the
+    # motor's own lists should never mark the same domain both ways.
+    if whitelisted and not blacklisted:
         score = min(score, WHITELIST_SCORE_CAP)
         category = "none"
 
@@ -177,4 +191,9 @@ def analyze(url: str, model: PhishingModel) -> AnalyzeResponse:
             top_features=prediction.top_features,
         ),
         rules=[RuleHit(id=r.id, weight=r.weight) for r in rules],
+        details=Details(
+            blacklist=blacklisted,
+            whitelist=whitelisted,
+            ml_probability=prediction.probability,
+        ),
     )

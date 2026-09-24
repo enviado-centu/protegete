@@ -71,7 +71,14 @@ class TestBrandLookalike:
         assert "brand_embedded" not in _ids("https://www.mercadopago.com.ar")
 
     def test_wrong_tld_exact_label_fires(self) -> None:
-        assert "brand_lookalike" in _ids("http://mercadopago.xyz")
+        # T8: this is now the motor's own "marca_otro_tld" signal (an exact
+        # brand label squatted on a different TLD), mapped to "brand_embedded"
+        # -- not our own "brand_lookalike", which only handles homoglyph/fuzzy
+        # typos the motor's plain matching can't catch (see module docstring).
+        hits = {h.id: h for h in evaluate_rules("http://mercadopago.xyz")}
+        assert "brand_embedded" in hits
+        assert "brand_lookalike" not in hits
+        assert hits["brand_embedded"].weight > 0.7  # must clear DANGER_THRESHOLD alone
 
     def test_short_typo_of_short_brand_does_not_fire(self) -> None:
         # Regression: Levenshtein-1 fuzzy matching against short brand labels
@@ -135,7 +142,11 @@ class TestScamKeywords:
         assert "login" in hits["scam_keywords"].reason
 
     def test_hyphen_joined_compound_matches_multiple_words(self) -> None:
-        hits = {h.id: h for h in evaluate_rules("http://bna-homebanking-verificar.xyz/login")}
+        # Not "bna-homebanking-verificar.xyz": that domain is a real entry in
+        # MODULO-PY/motor/datos/lista_negra_propia.txt (T8), so it now
+        # short-circuits to a single "blacklisted" rule instead -- see
+        # TestBlacklist below.
+        hits = {h.id: h for h in evaluate_rules("http://homebanking-verificar-ahora.xyz/login")}
         assert "scam_keywords" in hits
         reason = hits["scam_keywords"].reason
         assert "homebanking" in reason
@@ -154,8 +165,14 @@ class TestScamKeywords:
         # "bank" (4 chars) must not match inside unrelated words like "embankment".
         assert "scam_keywords" not in _ids("https://embankment-tours.com")
 
-    def test_long_keyword_matches_as_substring_without_separator(self) -> None:
-        assert "scam_keywords" in _ids("https://example.com/verificaridentidad")
+    def test_long_keyword_glued_without_separator_is_a_documented_motor_gap(self) -> None:
+        # T8 behavior change: the motor's palabras_enganio only does exact
+        # token matching (split on non-alphanumeric characters), unlike our
+        # old substring-for-long-keywords logic. A compound scam word glued
+        # to another word with no separator (e.g. "verificar"+"identidad")
+        # is no longer flagged. This isn't covered by any acceptance
+        # criterion; documented here rather than silently dropped.
+        assert "scam_keywords" not in _ids("https://example.com/verificaridentidad")
 
     def test_no_keywords_does_not_fire(self) -> None:
         assert "scam_keywords" not in _ids("https://example.com/about")
@@ -188,3 +205,57 @@ class TestOtherRules:
 
     def test_no_rules_fire_for_a_plain_safe_domain(self) -> None:
         assert evaluate_rules("https://example.com") == []
+
+
+class TestBlacklist:
+    """T8: motor.listas.esta_en_lista_negra() short-circuits like the whitelist."""
+
+    def test_domain_entry_short_circuits_to_a_single_reason(self) -> None:
+        # "dominio:bna-homebanking-verificar.xyz" is a real entry in
+        # MODULO-PY/motor/datos/lista_negra_propia.txt.
+        hits = evaluate_rules("http://bna-homebanking-verificar.xyz/login")
+        assert [h.id for h in hits] == ["blacklisted"]
+        assert hits[0].weight == 1.0
+        assert hits[0].category == "blacklisted"
+        assert "bna-homebanking-verificar.xyz" in hits[0].reason
+
+    def test_subdomain_of_a_blacklisted_domain_also_matches(self) -> None:
+        hits = evaluate_rules("https://login.bna-homebanking-verificar.xyz/x")
+        assert [h.id for h in hits] == ["blacklisted"]
+
+    def test_exact_url_entry_matches(self) -> None:
+        # "https://paypal-login.web.app/verificar" is a real exact-URL entry.
+        hits = evaluate_rules("https://paypal-login.web.app/verificar")
+        assert [h.id for h in hits] == ["blacklisted"]
+
+    def test_exact_url_entry_does_not_match_a_different_path(self) -> None:
+        assert "blacklisted" not in _ids("https://paypal-login.web.app/otra-ruta")
+
+    def test_not_blacklisted_url_is_unaffected(self) -> None:
+        assert "blacklisted" not in _ids("https://example.com")
+
+
+class TestMotorOnlySignals:
+    """New signals the motor adds that we had no equivalent for (T8)."""
+
+    def test_brand_mention_in_path_is_weak(self) -> None:
+        # Matches MODULO-PY/motor/tests/test_reglas.py's own example of a
+        # bare, innocuous brand mention (a news article), not impersonation.
+        hits = {h.id: h for h in evaluate_rules("diario.com/nota/bna/tasas")}
+        assert "brand_mention" in hits
+        assert hits["brand_mention"].category == "impersonation"
+        assert hits["brand_mention"].weight < 0.4  # must not reach "danger"/"caution" alone
+
+    def test_explicit_port_fires(self) -> None:
+        hits = {h.id: h for h in evaluate_rules("http://ejemplo.com:8080/")}
+        assert "explicit_port" in hits
+        assert hits["explicit_port"].category == "suspicious_domain"
+
+    def test_at_symbol_fires(self) -> None:
+        hits = {h.id: h for h in evaluate_rules("https://bna.com.ar@sitio-malo.com")}
+        assert "at_symbol" in hits
+        assert hits["at_symbol"].category == "hidden_destination"
+        # The real host is "sitio-malo.com": bna.com.ar (before the "@") is
+        # user info, not the destination -- so brand_embedded also fires,
+        # exactly like MODULO-PY/motor/tests/test_reglas.py's own example.
+        assert "brand_embedded" in hits

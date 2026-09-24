@@ -80,12 +80,41 @@ def test_weak_signals_alone_never_reach_danger(fake_model) -> None:
 def test_weak_signals_reinforce_a_strong_rule(fake_model) -> None:
     # Combined with brand impersonation, the weak signals should still be
     # allowed to reinforce (not get suppressed by the weak-only cap).
+    # Not "bna-homebanking-verificar.xyz": that domain is a real motor
+    # blacklist entry (T8) and short-circuits to a single "blacklisted" rule
+    # instead -- see test_blacklist_hit_short_circuits_to_danger below.
     fake_model._probability = 0.05
-    result = analyze("http://bna-homebanking-verificar.xyz/login", fake_model)
+    result = analyze("http://mercadopago-clave.xyz/login", fake_model)
     assert result.level == "danger"
     assert result.category == "impersonation"
     rule_ids = {r.id for r in result.rules}
     assert {"brand_embedded", "suspicious_tld", "scam_keywords", "insecure_http"} <= rule_ids
+
+
+def test_blacklist_hit_short_circuits_to_danger(fake_model) -> None:
+    fake_model._probability = 0.0  # even a confidently-safe ML score is overridden
+    result = analyze("http://bna-homebanking-verificar.xyz/login", fake_model)
+    assert result.level == "danger"
+    assert result.score == 1.0
+    assert result.category == "blacklisted"
+    assert [r.id for r in result.rules] == ["blacklisted"]
+    assert result.details.blacklist is True
+
+
+def test_details_block_reflects_whitelist_and_ml_probability(fake_model) -> None:
+    fake_model._probability = 0.741
+    result = analyze("https://docs.google.com/document", fake_model)
+    assert result.details.whitelist is True
+    assert result.details.blacklist is False
+    assert result.details.ml_probability == 0.741
+
+
+def test_details_block_default_is_all_clear(fake_model) -> None:
+    fake_model._probability = 0.05
+    result = analyze("https://example.com", fake_model)
+    assert result.details.whitelist is False
+    assert result.details.blacklist is False
+    assert result.details.ml_probability == 0.05
 
 
 def test_weak_rule_cap_prevents_bonus_from_tipping_near_threshold_ml_into_danger(fake_model) -> None:
