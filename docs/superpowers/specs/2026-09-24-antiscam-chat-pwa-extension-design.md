@@ -94,6 +94,35 @@ Response `{ "answer": "..." | null, "fallback": bool }`. Config via env: `OLLAMA
 - **Fallback plan if time runs short:** drop the chat inside the side panel (replace with an
   "Abrir chat" button to the PWA). Badge + metrics always ship.
 
+## 4b. UX / UI — designed for every age (kids, teens, adults, seniors)
+
+Look and feel: modern, calm and trustworthy (Apple HIG-inspired): generous whitespace, soft
+rounded cards, one accent color, system font stack, subtle motion only.
+
+Accessibility and inclusivity (non-negotiable):
+- **Readable:** body text ≥ 18 px, headings ≥ 24 px; respects browser zoom and OS font size
+  (rem units); line length ≤ 70 chars.
+- **Contrast:** WCAG 2.2 AA minimum (4.5:1 text, 3:1 UI); light and dark themes.
+- **Never color alone:** every verdict = color + icon + word ("Peligroso", "Cuidado",
+  "Parece seguro") + one-line plain-language summary.
+- **Big targets:** buttons/chips ≥ 48×48 px, clear focus ring, full keyboard navigation,
+  ARIA labels, screen-reader live region for new chat messages.
+- **Plain language:** short sentences, no jargon ("dirección del sitio", not "dominio"; tech
+  terms appear only inside lessons, explained). Friendly neutral voseo.
+- **One thing per screen:** chat is the only primary screen; the first-run screen shows 3
+  example buttons ("Probar con un mensaje de ejemplo") so nobody faces an empty box.
+- **Read aloud:** a "🔊 Escuchar" button on each answer using the browser's Web Speech API
+  (es-AR voice when available) — helps seniors, kids and low-literacy users. Zero backend cost.
+- **Text size toggle:** A / A+ / A++ stored in localStorage.
+- **Reduced motion:** honors `prefers-reduced-motion`.
+- **Lessons as cards:** icon + title + "Cómo darte cuenta" + real-looking example + "Qué hacer",
+  max ~60 words each.
+- **Metrics readable at a glance:** three big number tiles (Hoy / Esta semana / Total) with a
+  short caption ("amenazas que frenamos"), no charts.
+
+Verification adds: automated axe-core accessibility check on the built PWA (0 serious/critical
+violations) and a contrast check of the palette tokens.
+
 ## 5. Error handling
 - Backend down → chat shows "No pude conectarme al analizador" and keeps the input.
 - LLM timeout/error → A reply stands alone (no error shown).
