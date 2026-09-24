@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.services.lessons import Lesson
 from app.services.urlinfo import has_plausible_host
 
 MAX_URL_LENGTH = 2048
+MAX_TEXT_LENGTH = 5000
 
 
 class AnalyzeRequest(BaseModel):
@@ -72,3 +74,36 @@ class HealthResponse(BaseModel):
 
     status: str
     model_version: str | None = None
+
+
+class AnalyzeTextRequest(BaseModel):
+    """Body of POST /api/analyze-text."""
+
+    text: str = Field(..., min_length=1, max_length=MAX_TEXT_LENGTH)
+
+    @field_validator("text")
+    @classmethod
+    def _validate_text(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("text must not be blank")
+        return value
+
+
+class Signal(BaseModel):
+    """One red-flag signal fired by the text analyzer."""
+
+    id: str
+    evidence: str
+
+
+class AnalyzeTextResponse(BaseModel):
+    """Body of the POST /api/analyze-text response."""
+
+    level: str
+    score: float
+    category: str
+    reasons: list[str]
+    tip: str
+    signals: list[Signal]
+    lessons: list[Lesson]
+    urls: list[AnalyzeResponse]
