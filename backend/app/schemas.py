@@ -9,6 +9,7 @@ from app.services.urlinfo import has_plausible_host
 
 MAX_URL_LENGTH = 2048
 MAX_TEXT_LENGTH = 5000
+MAX_CHAT_MESSAGE_LENGTH = 2000
 
 
 class AnalyzeRequest(BaseModel):
@@ -107,3 +108,31 @@ class AnalyzeTextResponse(BaseModel):
     signals: list[Signal]
     lessons: list[Lesson]
     urls: list[AnalyzeResponse]
+
+
+class ChatContext(BaseModel):
+    """Verified verdict context passed alongside a chat question, if any."""
+
+    level: str | None = None
+    signals: list[Signal] = Field(default_factory=list)
+
+
+class ChatRequest(BaseModel):
+    """Body of POST /api/chat."""
+
+    message: str = Field(..., min_length=1, max_length=MAX_CHAT_MESSAGE_LENGTH)
+    context: ChatContext | None = None
+
+    @field_validator("message")
+    @classmethod
+    def _validate_message(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("message must not be blank")
+        return value
+
+
+class ChatResponse(BaseModel):
+    """Body of the POST /api/chat response."""
+
+    answer: str | None
+    fallback: bool

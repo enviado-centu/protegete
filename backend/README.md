@@ -73,6 +73,9 @@ uv run uvicorn app.main:app --reload --port 8000
 |---|---|---|
 | `ML_MODULE_PATH` | `<repo>/MODULO-PY` | Filesystem path to the ML module (predict.py, features.py, models/). |
 | `EXTRA_CORS_ORIGINS` | (empty) | Comma-separated list of extra allowed CORS origins, added on top of the built-in `chrome-extension://*` / `localhost` / `127.0.0.1` regex. |
+| `OLLAMA_URL` | `http://localhost:11434` | Base URL of the Ollama server used by `POST /api/chat` (layer B). |
+| `OLLAMA_MODEL` | `nemotron-3-nano:30b-cloud` | Ollama model name. Runs on Ollama Cloud (chosen for the demo machine's 8 GB RAM): chat text sent to layer B leaves the device, but only the user's question plus the already-verified signals, never the raw analyzed URL/message from layer A. |
+| `OLLAMA_TIMEOUT_S` | `8` | Request timeout (seconds) for Ollama calls. On timeout or any error, `/api/chat` falls back to `{"answer": null, "fallback": true}` instead of failing. |
 
 ## API
 
@@ -137,6 +140,153 @@ The URL scheme is optional (`mercad0pago.com.ar` works). Empty, overlong
 parse `reasons`/`rules`: `blacklist`/`whitelist` are whether the motor's
 lists matched, and `ml_probability` mirrors `ml.probability`.
 
+### `POST /api/analyze-text`
+
+Scores a free-text message (SMS, WhatsApp, e-mail) for scam red flags:
+Spanish keyword/brand signals plus the same URL analyzer above for any link
+found inside the text. Request `{ "text": "..." }` (1-5000 chars, non-blank
+after stripping, else 422). Response keeps the `/api/analyze` shape (`level`,
+`score`, `category`, `reasons`, `tip`) plus `signals` (fired red flags with
+the matched evidence snippet from the original text), `lessons` (one lesson
+per fired signal / URL category, from `GET /api/lessons`), and `urls`
+(`AnalyzeResponse` for every link found in the text, reusing `/api/analyze`).
+
+Signal ids: `urgency`, `credential_request`, `money_request`, `prize`,
+`brand_mention`, `suspicious_link`, `impersonal_greeting`. Matching is
+accent- and case-insensitive. A single weak signal never reaches `danger`
+(its score is capped at 0.6).
+
+Danger example:
+
+```bash
+curl -s -X POST localhost:8000/api/analyze-text \
+  -H 'content-type: application/json' \
+  -d '{"text": "URGENTE: Estimado cliente, tu cuenta de Mercado Pago será SUSPENDIDA. Ingresá tu clave en http://mercadopago-reintegros.com"}'
+```
+
+```json
+{
+  "level": "danger",
+  "score": 1.0,
+  "category": "impersonation",
+  "reasons": [
+    "Usa apuro y urgencia para que no pienses antes de actuar.",
+    "Te pide una clave o código: ningún banco lo hace por mensaje.",
+    "Te saluda de forma genérica ('estimado cliente'), no por tu nombre.",
+    "Menciona una marca conocida: verificá que sea realmente su canal oficial.",
+    "Incluye un link que nuestro análisis considera sospechoso."
+  ],
+  "tip": "No respondas ni hagas clic: verificá por los canales oficiales antes de hacer nada.",
+  "signals": [
+    { "id": "urgency", "evidence": "URGENTE" },
+    { "id": "credential_request", "evidence": "clave" },
+    { "id": "impersonal_greeting", "evidence": "Estimado cliente" },
+    { "id": "brand_mention", "evidence": "Mercado Pago" },
+    { "id": "suspicious_link", "evidence": "http://mercadopago-reintegros.com" }
+  ],
+  "lessons": [ /* urgency, credential_request, brand_impersonation, suspicious_link, impersonal_greeting, fake_domain */ ],
+  "urls": [
+    {
+      "url": "http://mercadopago-reintegros.com",
+      "level": "danger",
+      "score": 1.0,
+      "category": "blacklisted",
+      "reasons": ["Este dominio está en nuestra lista negra de sitios reportados como fraudulentos (mercadopago-reintegros.com)"],
+      "tip": "Este sitio fue reportado como fraudulento: no ingreses datos ni sigas navegando en él.",
+      "ml": { "probability": 0.352, "threshold": 0.9, "flagged": false, "top_features": ["cant_guiones", "longitud_dominio", "entropia_dominio"] },
+      "rules": [{ "id": "blacklisted", "weight": 1.0 }],
+      "details": { "blacklist": true, "whitelist": false, "ml_probability": 0.352 }
+    }
+  ]
+}
+```
+
+Caution example (`{"text": "Pasame tu alias para hacer la transferencia"}`):
+
+```json
+{
+  "level": "caution",
+  "score": 0.4,
+  "category": "social_engineering",
+  "reasons": ["Te pide plata, un CBU/alias o una transferencia."],
+  "tip": "Revisá bien antes de responder o hacer clic; ante la duda, verificá por canales oficiales.",
+  "signals": [{ "id": "money_request", "evidence": "alias" }],
+  "lessons": [{ "id": "money_request", "icon": "💸", "title": "Te piden plata o datos para transferir", "..." : "..." }],
+  "urls": []
+}
+```
+
+Safe example (`{"text": "Hola, como estas? Nos vemos mañana"}`):
+
+```json
+{
+  "level": "safe",
+  "score": 0.0,
+  "category": "none",
+  "reasons": [],
+  "tip": "No se detectaron señales de estafa, pero igual revisá antes de compartir datos personales.",
+  "signals": [],
+  "lessons": [],
+  "urls": []
+}
+```
+
+### `GET /api/lessons`
+
+Returns the static red-flag lesson catalog (10 lessons, Spanish, `id, icon,
+title, how_to_spot, example, what_to_do`), each ≤ 60 words across
+`how_to_spot` + `what_to_do`:
+
+```bash
+curl -s localhost:8000/api/lessons
+```
+
+```json
+[
+  {
+    "id": "urgency",
+    "icon": "⏰",
+    "title": "Te apuran para que no pienses",
+    "how_to_spot": "Si un mensaje dice que tenés que actuar YA o perdés algo (tu cuenta, tu plata, un premio), es una señal de alarma: los apuros buscan que no pares a pensar.",
+    "example": "\"URGENTE: tu cuenta de Mercado Pago será suspendida en 24 horas.\"",
+    "what_to_do": "Respirá y no hagas clic todavía. Entrá a la app o al sitio oficial escribiendo vos la dirección, sin usar el link del mensaje."
+  }
+  /* ... 9 more: credential_request, money_request, prize, brand_impersonation,
+     suspicious_link, impersonal_greeting, fake_domain, hidden_link, insecure_site */
+]
+```
+
+### `POST /api/chat`
+
+Layer B: a grounded LLM answer via Ollama, additive to layer A above. The
+LLM never decides risk -- it only rephrases the `level` and `signals` it is
+given (or, with no context, the lessons closest to the question) and always
+ends with one concrete tip. Request `{ "message": "...", "context": { "level":
+"danger", "signals": [{"id": "credential_request", "evidence": "..."}] } |
+null }` (`message` 1-2000 chars, non-blank, else 422; `context` optional).
+
+```bash
+curl -s -X POST localhost:8000/api/chat \
+  -H 'content-type: application/json' \
+  -d '{"message": "¿Qué hago si me piden la clave por WhatsApp?", "context": {"level": "danger", "signals": [{"id": "credential_request", "evidence": "pasame tu clave"}, {"id": "urgency", "evidence": "urgente"}]}}'
+```
+
+```json
+{
+  "answer": "No compartas tu clave con nadie. Nadie de confianza te pedirá esa info vía WhatsApp. Si te lo piden, cortá el chat al instante. Entrá a la app directamente y verificá si hay realmente un problema.",
+  "fallback": false
+}
+```
+
+If Ollama is unreachable, returns an error, invalid JSON, or takes longer
+than `OLLAMA_TIMEOUT_S` (default 8s), the endpoint still answers `200` with:
+
+```json
+{ "answer": null, "fallback": true }
+```
+
+No message content, URL or verdict is ever logged or persisted.
+
 ## How scoring works
 
 1. The ML probability is rescaled so the model's own 0.90 threshold lands at
@@ -164,8 +314,10 @@ lists matched, and `ml_probability` mirrors `ml.probability`.
 
 ## Privacy
 
-Analyzed URLs are never logged or persisted; there is no request-content
-logging and no storage layer.
+Analyzed URLs, messages and chat questions are never logged or persisted;
+there is no request-content logging and no storage layer. `POST /api/chat`
+sends only the user's question plus the already-verified `level`/`signals`
+to Ollama (see `OLLAMA_MODEL` above) -- never raw analyzed URLs or messages.
 
 ## Tests
 

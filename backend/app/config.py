@@ -29,3 +29,29 @@ def get_extra_cors_origins() -> list[str]:
     """
     raw = os.environ.get("EXTRA_CORS_ORIGINS", "")
     return [origin.strip() for origin in raw.split(",") if origin.strip()]
+
+
+DEFAULT_OLLAMA_URL = "http://localhost:11434"
+DEFAULT_OLLAMA_MODEL = "nemotron-3-nano:30b-cloud"
+DEFAULT_OLLAMA_TIMEOUT_S = 8.0
+
+
+def get_ollama_url() -> str:
+    """Base URL of the Ollama server. Configurable via the OLLAMA_URL env var."""
+    return os.environ.get("OLLAMA_URL", DEFAULT_OLLAMA_URL)
+
+
+def get_ollama_model() -> str:
+    """Ollama model name. Configurable via the OLLAMA_MODEL env var."""
+    return os.environ.get("OLLAMA_MODEL", DEFAULT_OLLAMA_MODEL)
+
+
+def get_ollama_timeout_s() -> float:
+    """Request timeout (seconds) for Ollama calls. Configurable via OLLAMA_TIMEOUT_S."""
+    raw = os.environ.get("OLLAMA_TIMEOUT_S")
+    if not raw:
+        return DEFAULT_OLLAMA_TIMEOUT_S
+    try:
+        return float(raw)
+    except ValueError:
+        return DEFAULT_OLLAMA_TIMEOUT_S

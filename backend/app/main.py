@@ -14,8 +14,11 @@ from app.schemas import (
     AnalyzeResponse,
     AnalyzeTextRequest,
     AnalyzeTextResponse,
+    ChatRequest,
+    ChatResponse,
     HealthResponse,
 )
+from app.services import llm
 from app.services.analyzer import analyze
 from app.services.lessons import Lesson, all_lessons
 from app.services.ml_model import get_model
@@ -67,3 +70,10 @@ def analyze_text_endpoint(payload: AnalyzeTextRequest) -> AnalyzeTextResponse:
 @app.get("/api/lessons", response_model=list[Lesson])
 def lessons() -> list[Lesson]:
     return all_lessons()
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+def chat(payload: ChatRequest) -> ChatResponse:
+    # Privacy: the chat message is never logged or persisted anywhere.
+    answer = llm.ask(payload.message, payload.context)
+    return ChatResponse(answer=answer, fallback=answer is None)
