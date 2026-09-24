@@ -11,6 +11,9 @@ Scoring, in five lines (see also backend/README.md):
    to "safe", since the model alone flags some of them (e.g. docs.google.com).
 5. `category` follows the strongest fired rule; reasons combine rule text
    with translated top ML features, deduplicated, capped at four.
+6. Weak signals (`suspicious_tld`, `scam_keywords`, `insecure_http`) are
+   capped so that, absent a stronger rule and absent an independently
+   confident ML score, they can never combine into "danger" by themselves.
 """
 
 from __future__ import annotations
@@ -25,6 +28,18 @@ WHITELIST_SCORE_CAP = 0.15
 COMBO_BONUS_PER_EXTRA_RULE = 0.05
 ML_REASON_MIN_PROBABILITY = 0.5
 MAX_REASONS = 4
+
+# Rule ids considered "weak" full-URL signals: low weight individually, meant
+# to reinforce a stronger rule (e.g. brand impersonation), never to cause a
+# "danger" verdict on their own. When every fired rule is one of these AND
+# the ML model hasn't independently reached the danger boundary on its own,
+# the combined rule-derived score is capped comfortably below DANGER_THRESHOLD.
+WEAK_RULE_IDS = frozenset({"suspicious_tld", "scam_keywords", "insecure_http"})
+WEAK_RULES_ONLY_SCORE_CAP = 0.6
+
+# Cautious, non-quantitative wording: shown only when the ML model's own
+# `flagged` semantics (probability >= its threshold) are true, never below.
+ML_FLAGGED_REASON = "El análisis automático del dominio lo considera muy similar a sitios fraudulentos conocidos."
 
 SAFE_LEVEL = "safe"
 CAUTION_LEVEL = "caution"
@@ -82,11 +97,23 @@ def _ml_derived_score(probability: float, threshold: float) -> float:
     return probability / threshold * DANGER_THRESHOLD
 
 
-def _build_reasons(rules: list[RuleMatch], ml_probability: float, top_features: list[str], level: str) -> list[str]:
+def _build_reasons(
+    rules: list[RuleMatch],
+    ml_probability: float,
+    ml_flagged: bool,
+    top_features: list[str],
+    level: str,
+) -> list[str]:
     reasons: list[str] = []
     for rule in sorted(rules, key=lambda r: -r.weight):
         if rule.reason not in reasons:
             reasons.append(rule.reason)
+
+    # T6: only when the model's own `flagged` threshold is met, and never on
+    # an (otherwise whitelist-forced) "safe" verdict, where it would read as
+    # a contradiction.
+    if ml_flagged and level != SAFE_LEVEL and ML_FLAGGED_REASON not in reasons:
+        reasons.append(ML_FLAGGED_REASON)
 
     if ml_probability >= ML_REASON_MIN_PROBABILITY and level != SAFE_LEVEL:
         for feature in top_features:
@@ -120,6 +147,12 @@ def analyze(url: str, model: PhishingModel) -> AnalyzeResponse:
     bonus = COMBO_BONUS_PER_EXTRA_RULE * max(len(rules) - 1, 0)
     score = min(1.0, base_score + bonus)
 
+    # Weak-signal cap (T5): if every fired rule is weak, and the ML score
+    # hasn't independently crossed into "danger" on its own, clamp the
+    # combined score so the weak rules can't tip it into "danger" together.
+    if rules and all(r.id in WEAK_RULE_IDS for r in rules) and ml_score < DANGER_THRESHOLD:
+        score = min(score, WEAK_RULES_ONLY_SCORE_CAP)
+
     category = max_rule.category if max_rule else ("suspicious_domain" if prediction.flagged else "none")
 
     if is_whitelisted(info):
@@ -127,7 +160,7 @@ def analyze(url: str, model: PhishingModel) -> AnalyzeResponse:
         category = "none"
 
     level = _level_for_score(score)
-    reasons = _build_reasons(rules, prediction.probability, prediction.top_features, level)
+    reasons = _build_reasons(rules, prediction.probability, prediction.flagged, prediction.top_features, level)
     tip = _tip_for(level, category)
 
     return AnalyzeResponse(

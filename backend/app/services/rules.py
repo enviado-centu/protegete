@@ -7,10 +7,12 @@ brands (see odd/tasks/backend-analyze-api.md, "Problem / Why").
 from __future__ import annotations
 
 import re
+import sys
 from dataclasses import dataclass
 
 import tldextract
 
+from app.config import get_ml_module_path
 from app.services.urlinfo import UrlInfo, parse_url
 
 # Brand labels at or below this length require an exact token match for
@@ -242,10 +244,94 @@ def _evaluate_insecure_http(info: UrlInfo) -> RuleMatch | None:
     return None
 
 
+# --- Weak signals over the full URL (host + path + query) ------------------
+#
+# TLDS_SOSPECHOSOS and PALABRAS_SOSPECHOSAS are the ML module's own lists
+# (single source of truth, see MODULO-PY-modelo-ml/.../features.py and its
+# CLAUDE.md). We reuse them here instead of copying them so the two stay in
+# sync. The ML model only ever looks at the domain, never at path/query, so
+# `scam_keywords` (below) is the only place these path/query keywords are
+# actually checked.
+_ml_lists_cache: tuple[frozenset[str], frozenset[str]] | None = None
+
+
+def _get_ml_lists() -> tuple[frozenset[str], frozenset[str]]:
+    """Lazily imports and caches (TLDS_SOSPECHOSOS, PALABRAS_SOSPECHOSAS).
+
+    Uses the same sys.path mechanism as ml_model.RealPhishingModel (insert
+    the ML module folder, then import), so this works regardless of whether
+    the ML model has already been loaded, and importing this module has no
+    import-time side effect of its own.
+    """
+    global _ml_lists_cache
+    if _ml_lists_cache is None:
+        module_path_str = str(get_ml_module_path())
+        if module_path_str not in sys.path:
+            sys.path.insert(0, module_path_str)
+        import features as _ml_features  # the ML module's features.py
+
+        _ml_lists_cache = (_ml_features.TLDS_SOSPECHOSOS, _ml_features.PALABRAS_SOSPECHOSAS)
+    return _ml_lists_cache
+
+
+# Weak signals: low weight on their own, they only add to the score (see
+# analyzer.py's WEAK_RULE_IDS / WEAK_RULES_ONLY_SCORE_CAP, which guarantees
+# these two rules can never combine into a "danger" verdict by themselves).
+SUSPICIOUS_TLD_WEIGHT = 0.25
+SCAM_KEYWORDS_WEIGHT = 0.25
+
+# Keywords at or below this length require an exact token match (split on
+# non-alphanumeric characters) rather than a plain substring match, to avoid
+# false positives like "bank" inside "embankment". Longer keywords also get
+# substring matching so compound/concatenated words without a separator
+# (e.g. a hypothetical "verificaridentidad") are still caught; hyphen-joined
+# compounds like "bna-homebanking-verificar" are already split into separate
+# tokens, so they match even the short-keyword exact-token path.
+KEYWORD_SUBSTRING_MIN_LENGTH = 6
+MAX_KEYWORDS_IN_REASON = 3
+
+
+def _evaluate_suspicious_tld(info: UrlInfo) -> RuleMatch | None:
+    suspicious_tlds, _ = _get_ml_lists()
+    suffix = _extractor(info.host).suffix
+    last_label = suffix.rsplit(".", 1)[-1] if suffix else ""
+    if last_label and last_label in suspicious_tlds:
+        return RuleMatch(
+            id="suspicious_tld",
+            weight=SUSPICIOUS_TLD_WEIGHT,
+            category="suspicious_domain",
+            reason=f"Usa la terminación .{last_label}, muy común en sitios fraudulentos",
+        )
+    return None
+
+
+def _evaluate_scam_keywords(url: str) -> RuleMatch | None:
+    text = url.lower()
+    tokens = {t for t in re.split(r"[^a-z0-9]+", text) if t}
+    _, scam_keywords = _get_ml_lists()
+    matched = sorted(
+        keyword
+        for keyword in scam_keywords
+        if keyword in tokens or (len(keyword) >= KEYWORD_SUBSTRING_MIN_LENGTH and keyword in text)
+    )
+    if not matched:
+        return None
+    shown = matched[:MAX_KEYWORDS_IN_REASON]
+    return RuleMatch(
+        id="scam_keywords",
+        weight=SCAM_KEYWORDS_WEIGHT,
+        category="suspicious_domain",
+        reason=f"Contiene palabras típicas de engaños: {', '.join(shown)}",
+    )
+
+
 def evaluate_rules(url: str) -> list[RuleMatch]:
     """Runs every rule against a URL and returns the ones that fired.
 
-    Brand rules are skipped entirely for whitelisted (official) domains.
+    Brand rules and the weak full-URL signals (suspicious_tld, scam_keywords)
+    are skipped entirely for whitelisted (official) domains -- the whitelist
+    short-circuits before them, e.g. "bna.com.ar/verificar-identidad" must
+    stay safe despite "verificar" being a scam keyword.
     """
     info = parse_url(url)
     hits: list[RuleMatch] = []
@@ -258,6 +344,14 @@ def evaluate_rules(url: str) -> list[RuleMatch]:
             embedded = _evaluate_brand_embedded(info)
             if embedded is not None:
                 hits.append(embedded)
+
+        tld_hit = _evaluate_suspicious_tld(info)
+        if tld_hit is not None:
+            hits.append(tld_hit)
+
+        keywords_hit = _evaluate_scam_keywords(url)
+        if keywords_hit is not None:
+            hits.append(keywords_hit)
 
     for evaluator in (_evaluate_shortener, _evaluate_ip_host, _evaluate_punycode, _evaluate_insecure_http):
         hit = evaluator(info)

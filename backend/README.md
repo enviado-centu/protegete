@@ -93,6 +93,14 @@ The URL scheme is optional (`mercad0pago.com.ar` works). Empty, overlong
    "safe", since the ML model alone flags some of them.
 5. `category` follows the strongest fired rule; `reasons` combine rule text
    with translated top ML features, deduplicated and capped at four.
+6. Two weak rules look at the *full* URL (host + path + query), which the ML
+   model never sees: `suspicious_tld` (registrable domain's TLD) and
+   `scam_keywords` (words like "verificar"/"homebanking"), both reusing the
+   ML module's own lists. They're low weight and score-capped so they can
+   never combine into "danger" by themselves -- only alongside a stronger
+   rule (e.g. brand impersonation) do they reinforce it. A cautious ML-only
+   reason sentence is added when the model's own probability is at/above its
+   threshold.
 
 ## Privacy
 

@@ -66,3 +66,69 @@ def test_score_is_rounded_to_three_decimals(fake_model) -> None:
     fake_model._probability = 0.123456
     result = analyze("https://example.com", fake_model)
     assert result.score == round(result.score, 3)
+
+
+def test_weak_signals_alone_never_reach_danger(fake_model) -> None:
+    # suspicious_tld + scam_keywords + insecure_http all fire here, but with
+    # a low ML probability the combined weak signal must stay out of "danger".
+    fake_model._probability = 0.05
+    result = analyze("http://example.xyz/login", fake_model)
+    assert result.level != "danger"
+    assert result.score < 0.7
+
+
+def test_weak_signals_reinforce_a_strong_rule(fake_model) -> None:
+    # Combined with brand impersonation, the weak signals should still be
+    # allowed to reinforce (not get suppressed by the weak-only cap).
+    fake_model._probability = 0.05
+    result = analyze("http://bna-homebanking-verificar.xyz/login", fake_model)
+    assert result.level == "danger"
+    assert result.category == "impersonation"
+    rule_ids = {r.id for r in result.rules}
+    assert {"brand_embedded", "suspicious_tld", "scam_keywords", "insecure_http"} <= rule_ids
+
+
+def test_weak_rule_cap_prevents_bonus_from_tipping_near_threshold_ml_into_danger(fake_model) -> None:
+    # Without the weak-rules cap: rescaled ml_score = 0.88/0.9*0.7 = 0.6844,
+    # base_score = max(0.25, 0.6844), + combo bonus 0.05*(2-1) = 0.05 ->
+    # 0.7344, which would round up into "danger". The cap must hold this at
+    # "caution" since the ML score itself hasn't independently crossed 0.7.
+    fake_model._probability = 0.88
+    result = analyze("http://sitecheck.top", fake_model)
+    assert result.level != "danger"
+    assert result.score == 0.6
+
+
+def test_independent_high_ml_score_not_suppressed_by_weak_rule_cap(fake_model) -> None:
+    # A weak rule firing (suspicious_tld) must not cap a genuinely high,
+    # independently-confident ML score.
+    fake_model._probability = 0.99
+    result = analyze("http://some-random-domain.xyz", fake_model)
+    assert result.level == "danger"
+
+
+class TestMlFlaggedReason:
+    def test_reason_present_when_probability_at_or_above_threshold(self, fake_model) -> None:
+        fake_model._probability = 0.95  # fake model threshold is fixed at 0.9
+        result = analyze("https://some-random-domain.example", fake_model)
+        assert (
+            "El análisis automático del dominio lo considera muy similar a sitios fraudulentos conocidos."
+            in result.reasons
+        )
+
+    def test_reason_absent_when_probability_below_threshold(self, fake_model) -> None:
+        fake_model._probability = 0.6
+        result = analyze("https://some-random-domain.example", fake_model)
+        assert (
+            "El análisis automático del dominio lo considera muy similar a sitios fraudulentos conocidos."
+            not in result.reasons
+        )
+
+    def test_reason_absent_on_whitelisted_safe_domain_even_if_flagged(self, fake_model) -> None:
+        fake_model._probability = 0.95
+        result = analyze("https://docs.google.com/document", fake_model)
+        assert result.level == "safe"
+        assert (
+            "El análisis automático del dominio lo considera muy similar a sitios fraudulentos conocidos."
+            not in result.reasons
+        )

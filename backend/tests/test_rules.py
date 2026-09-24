@@ -110,6 +110,61 @@ class TestBrandEmbedded:
         assert "brand_embedded" in _ids("http://bna-verificacion.com")
 
 
+class TestSuspiciousTld:
+    def test_suspicious_tld_fires(self) -> None:
+        hits = {h.id: h for h in evaluate_rules("http://example.xyz/login")}
+        assert "suspicious_tld" in hits
+        assert hits["suspicious_tld"].category == "suspicious_domain"
+        assert ".xyz" in hits["suspicious_tld"].reason
+
+    def test_common_tld_does_not_fire(self) -> None:
+        assert "suspicious_tld" not in _ids("https://example.com")
+
+    def test_skipped_for_whitelisted_domain(self) -> None:
+        # bna.com.ar itself isn't a suspicious TLD, but this also verifies
+        # the whitelist short-circuit runs before this rule is evaluated.
+        assert "suspicious_tld" not in _ids("https://www.bna.com.ar/verificar-identidad")
+
+
+class TestScamKeywords:
+    def test_keyword_in_path_fires(self) -> None:
+        # The ML model never looks at the path, so this rule must.
+        hits = {h.id: h for h in evaluate_rules("https://example.com/login")}
+        assert "scam_keywords" in hits
+        assert hits["scam_keywords"].category == "suspicious_domain"
+        assert "login" in hits["scam_keywords"].reason
+
+    def test_hyphen_joined_compound_matches_multiple_words(self) -> None:
+        hits = {h.id: h for h in evaluate_rules("http://bna-homebanking-verificar.xyz/login")}
+        assert "scam_keywords" in hits
+        reason = hits["scam_keywords"].reason
+        assert "homebanking" in reason
+        assert "verificar" in reason
+        assert "login" in reason
+
+    def test_reason_caps_at_three_words(self) -> None:
+        hits = {
+            h.id: h
+            for h in evaluate_rules("https://example.com/login-verificar-clave-banco-confirmar")
+        }
+        matched_words = hits["scam_keywords"].reason.split(": ", 1)[1].split(", ")
+        assert len(matched_words) <= 3
+
+    def test_short_keyword_does_not_match_as_substring(self) -> None:
+        # "bank" (4 chars) must not match inside unrelated words like "embankment".
+        assert "scam_keywords" not in _ids("https://embankment-tours.com")
+
+    def test_long_keyword_matches_as_substring_without_separator(self) -> None:
+        assert "scam_keywords" in _ids("https://example.com/verificaridentidad")
+
+    def test_no_keywords_does_not_fire(self) -> None:
+        assert "scam_keywords" not in _ids("https://example.com/about")
+
+    def test_skipped_for_whitelisted_domain(self) -> None:
+        # "verificar" is a scam keyword, but the whitelist short-circuits first.
+        assert "scam_keywords" not in _ids("https://www.bna.com.ar/verificar-identidad")
+
+
 class TestOtherRules:
     def test_shortener(self) -> None:
         hits = {h.id: h for h in evaluate_rules("https://bit.ly/x")}

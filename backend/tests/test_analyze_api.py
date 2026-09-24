@@ -92,3 +92,52 @@ def test_url_without_scheme_is_accepted(client) -> None:
     response = client.post("/api/analyze", json={"url": "mercad0pago.com.ar"})
     assert response.status_code == 200
     assert response.json()["level"] == "danger"
+
+
+def test_brand_impersonation_plus_weak_signals_is_danger_with_all_reasons(client) -> None:
+    response = client.post("/api/analyze", json={"url": "http://bna-homebanking-verificar.xyz/login"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] == "danger"
+    reasons_text = " ".join(body["reasons"])
+    assert "Banco Nación" in reasons_text
+    assert ".xyz" in reasons_text
+    assert "homebanking" in reasons_text
+    assert "verificar" in reasons_text
+    assert "HTTP sin cifrado" in reasons_text
+
+
+def test_weak_signals_only_is_not_danger(client) -> None:
+    # suspicious_tld + insecure_http fire here, and (checked separately with
+    # the real model) the ML probability alone is *not* independently past
+    # the danger boundary -- without the weak-rules cap, the combo bonus
+    # would tip 0.25 (tld) + 0.2 (http) + 0.05 (bonus) + ~0.68 (ml, rescaled)
+    # over 0.7. `http://example.xyz/login` is NOT used here: the real model
+    # independently flags plain ".xyz" domains at ~0.98 probability, which is
+    # legitimate ML-driven danger, not something the weak-rule cap should (or
+    # does) suppress.
+    response = client.post("/api/analyze", json={"url": "http://sitecheck.top"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] != "danger"
+    rule_ids = {r["id"] for r in body["rules"]}
+    assert rule_ids <= {"suspicious_tld", "scam_keywords", "insecure_http"}
+    assert rule_ids
+
+
+def test_bna_whitelisted_path_is_safe_with_no_weak_rules(client) -> None:
+    response = client.post("/api/analyze", json={"url": "https://www.bna.com.ar/verificar-identidad"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] == "safe"
+    assert body["rules"] == []
+
+
+def test_sala_com_ar_still_not_danger_with_weak_rules_added(client) -> None:
+    # Regression guard for T4's fix: sala.com.ar must still not be flagged
+    # danger/impersonation now that suspicious_tld/scam_keywords also run.
+    response = client.post("/api/analyze", json={"url": "sala.com.ar"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] != "danger"
+    assert body["category"] != "impersonation"
