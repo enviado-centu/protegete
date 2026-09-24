@@ -11,7 +11,7 @@ cd backend
 uv sync
 ```
 
-Requires the sibling `MODULO-PY-modelo-ml/MODULO-PY-modelo-ml` folder (the
+Requires the sibling `MODULO-PY` folder (the
 trained model + feature extraction code) to be present at the repo root;
 this backend imports it read-only and never modifies it.
 
@@ -25,7 +25,7 @@ uv run uvicorn app.main:app --reload --port 8000
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `ML_MODULE_PATH` | `<repo>/MODULO-PY-modelo-ml/MODULO-PY-modelo-ml` | Filesystem path to the ML module (predict.py, features.py, models/). |
+| `ML_MODULE_PATH` | `<repo>/MODULO-PY` | Filesystem path to the ML module (predict.py, features.py, models/). |
 | `EXTRA_CORS_ORIGINS` | (empty) | Comma-separated list of extra allowed CORS origins, added on top of the built-in `chrome-extension://*` / `localhost` / `127.0.0.1` regex. |
 
 ## API

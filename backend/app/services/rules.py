@@ -247,7 +247,7 @@ def _evaluate_insecure_http(info: UrlInfo) -> RuleMatch | None:
 # --- Weak signals over the full URL (host + path + query) ------------------
 #
 # TLDS_SOSPECHOSOS and PALABRAS_SOSPECHOSAS are the ML module's own lists
-# (single source of truth, see MODULO-PY-modelo-ml/.../features.py and its
+# (single source of truth, see MODULO-PY/features.py and its
 # CLAUDE.md). We reuse them here instead of copying them so the two stay in
 # sync. The ML model only ever looks at the domain, never at path/query, so
 # `scam_keywords` (below) is the only place these path/query keywords are

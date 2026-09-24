@@ -1,9 +1,9 @@
 """Adapter around the team's trained phishing ML module.
 
-Wraps `predict.predecir` from MODULO-PY-modelo-ml behind a small interface
+Wraps `predict.predecir` from MODULO-PY behind a small interface
 (`PhishingModel`) so the rest of the backend, and its tests, can depend on
 that interface instead of importing the external module directly. The real
-module is read-only: never modify anything under MODULO-PY-modelo-ml/.
+module is read-only: never modify anything under MODULO-PY/.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ class PhishingModel(Protocol):
 
 
 class RealPhishingModel:
-    """Loads the trained model from MODULO-PY-modelo-ml on first use, then caches it.
+    """Loads the trained model from MODULO-PY on first use, then caches it.
 
     The ML module's predict.py loads its joblib model at import time and
     expects its own folder on sys.path (it does `from features import ...`).

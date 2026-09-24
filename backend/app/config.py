@@ -8,14 +8,14 @@ from pathlib import Path
 _APP_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _APP_DIR.parent.parent
 
-DEFAULT_ML_MODULE_PATH = _REPO_ROOT / "MODULO-PY-modelo-ml" / "MODULO-PY-modelo-ml"
+DEFAULT_ML_MODULE_PATH = _REPO_ROOT / "MODULO-PY"
 
 
 def get_ml_module_path() -> Path:
     """Filesystem path to the ML module folder (predict.py, features.py, models/).
 
     Configurable via the ML_MODULE_PATH env var; defaults to the sibling
-    MODULO-PY-modelo-ml/MODULO-PY-modelo-ml folder at the repo root, resolved
+    MODULO-PY folder at the repo root, resolved
     relative to this file so it works regardless of the process cwd.
     """
     raw = os.environ.get("ML_MODULE_PATH")
