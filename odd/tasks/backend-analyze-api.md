@@ -46,7 +46,7 @@ Response:
 
 ## Tasks
 - [x] T1 — Scaffold `backend/` uv project, ML adapter wrapping `predecir`, `GET /api/health`, tests. Route: delegated (writer trigger: 2+ non-trivial files).
-- [ ] T2 — Rules engine (brands AR, homoglyph/Levenshtein lookalikes, brand-in-subdomain, shortener, IP, http), tests. Route: delegated.
+- [x] T2 — Rules engine (brands AR, homoglyph/Levenshtein lookalikes, brand-in-subdomain, shortener, IP, http), tests. Route: delegated.
 - [ ] T3 — `POST /api/analyze` ensemble + Spanish explanations + CORS + README, tests. Route: delegated.
 
 ## Acceptance criteria
@@ -67,7 +67,10 @@ Mode: not configured (no project/session TDD setting) → ordinary functional ch
 Strategy: ask-on-risk. Forecast ~450 authored lines. RDD: disabled globally by user.
 
 ## Progress / Evidence
-- T1 done: `backend/` uv project scaffolded (`app/config.py`, `app/schemas.py`, `app/services/ml_model.py` adapter over `predict.predecir`, `app/main.py` with lifespan-loaded model + `GET /api/health`). Tests: `backend/tests/{conftest,test_ml_model,test_health}.py`. `uv run pytest -q`: 6 passed. Commit: pending (see next command).
+- T1 done: `backend/` uv project scaffolded (`app/config.py`, `app/schemas.py`, `app/services/ml_model.py` adapter over `predict.predecir`, `app/main.py` with lifespan-loaded model + `GET /api/health`). Tests: `backend/tests/{conftest,test_ml_model,test_health}.py`. `uv run pytest -q`: 6 passed. Commit: a75b675 `feat(backend): scaffold FastAPI app with ML adapter and health endpoint`.
+- T2 done: `app/services/urlinfo.py` (shared URL parsing: scheme, host, registrable domain, subdomain, IP detection) and `app/services/rules.py` (AR + global brand table, homoglyph normalization, Levenshtein, whitelist, `brand_lookalike`, `brand_embedded`, `shortener`, `ip_host`, `punycode`, `insecure_http`). Tests: `backend/tests/test_rules.py` (homoglyph, Levenshtein, whitelist, all 6 rules, short-brand token-vs-substring guard). `uv run pytest -q`: 29 passed.
+  - Design note: `brand_lookalike` only accepts an exact (distance-0) label match on the registrable domain's own label (e.g. wrong-TLD squatting `mercadopago.xyz`) or on a homoglyph/typo-modified subdomain label; an *unmodified* exact brand name placed in the subdomain (e.g. `mercadopago.login-seguro.xyz`) is left to `brand_embedded`, matching the spec's own example.
+  - Open risk (not covered by acceptance tests, flagging for awareness): Levenshtein threshold 1 on short official labels (e.g. "uala", 4 chars) can false-positive on unrelated short words of edit-distance 1 (e.g. hypothetical "sala.com.ar"). Left as-is per the literal spec ("scale by length"); would need a product decision to tighten further (e.g. minimum label length for fuzzy matching).
 
 ## Next step
-T2 — rules engine.
+T3 — ensemble + POST /api/analyze + CORS + README.
