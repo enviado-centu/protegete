@@ -122,3 +122,26 @@ describe('Composer dictation', () => {
     expect(micButton.getAttribute('title')).toMatch(/google/i)
   })
 })
+
+describe('Composer image picking', () => {
+  test('copies the picked image into memory before handing it over (Android file handles go stale once the input is reset)', async () => {
+    const onImage = vi.fn()
+    const { container } = render(<Composer {...baseProps({ onImage })} />)
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement
+    const picked = new File([new Uint8Array([1, 2, 3, 4])], 'sms.jpg', { type: 'image/jpeg' })
+
+    await userEvent.upload(input, picked)
+
+    await vi.waitFor(() => expect(onImage).toHaveBeenCalledTimes(1))
+    const handed = onImage.mock.calls[0][0] as Blob
+    expect(handed).not.toBe(picked)
+    expect(handed.type).toBe('image/jpeg')
+    const bytes = await new Promise<ArrayBuffer>((resolve) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as ArrayBuffer)
+      reader.readAsArrayBuffer(handed)
+    })
+    expect(new Uint8Array(bytes)).toEqual(new Uint8Array([1, 2, 3, 4]))
+    expect(input.value).toBe('')
+  })
+})

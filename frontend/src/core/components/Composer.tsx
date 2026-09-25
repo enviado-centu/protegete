@@ -36,6 +36,18 @@ const DICTATION_TOOLTIP =
 const MAX_ROWS = 4
 const FALLBACK_LINE_HEIGHT = 24
 
+/** Reads a Blob fully into memory (FileReader fallback for environments
+ * without `Blob.arrayBuffer`). */
+function readBytes(blob: Blob): Promise<ArrayBuffer> {
+  if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer()
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as ArrayBuffer)
+    reader.onerror = () => reject(reader.error)
+    reader.readAsArrayBuffer(blob)
+  })
+}
+
 /** Text/URL input plus image paste and picker (spec: input accepts text/URL,
  * paste of images, and an image picker). The textarea auto-grows from one
  * line up to `MAX_ROWS` and never shows a manual resize handle, so it works
@@ -109,10 +121,21 @@ export function Composer({
     }
   }
 
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (file) onImage(file)
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.target
+    const file = input.files?.[0]
+    if (!file) return
+    // On Android Chrome a picked File is a live handle to the device file that
+    // can become unreadable ("File could not be read! Code=0") once the input
+    // is reset, so copy it into memory before resetting and handing it over.
+    let image: Blob = file
+    try {
+      image = new Blob([await readBytes(file)], { type: file.type })
+    } catch {
+      // Fall back to the original handle; OCR reports its own failure.
+    }
+    input.value = ''
+    onImage(image)
   }
 
   /** Toggles dictation. Starting it stops any ongoing read-aloud (spec: the
