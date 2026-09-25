@@ -443,8 +443,12 @@ export function Chat({
       let text: string
       try {
         text = await extractText(file)
-      } catch {
-        append({ id: newId(), role: 'system', text: OCR_FAILED_MESSAGE })
+      } catch (error) {
+        // `?debug=1` surfaces the underlying OCR error so on-device failures
+        // can be diagnosed without remote devtools.
+        const debug = typeof window !== 'undefined' && window.location.search.includes('debug=1')
+        const detail = debug ? ` [${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}]` : ''
+        append({ id: newId(), role: 'system', text: OCR_FAILED_MESSAGE + detail })
         return
       }
       if (!text) {
