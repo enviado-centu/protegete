@@ -10,7 +10,7 @@ Authorized by user 2026-09-24 (spec + plan approved, parallel execution approved
 - [ ] T3 — Frontend core + PWA. Route: delegated writer in isolated git worktree (parallel with T1–T2).
 - [x] T4 — E2E smoke PWA vs real backend. Route: delegated.
 - [x] T5 — Chromium MV3 extension + metrics. Route: delegated.
-- [ ] T6 — DEMO.md + final verification. Route: delegated/inline.
+- [x] T6 — DEMO.md + final verification. Route: delegated/inline.
 
 ## TDD
 Plan prescribes failing-test-first per task (pytest / vitest).
@@ -81,3 +81,24 @@ Branch feat/backend-analyze-api, no push. RDD disabled by user.
 - Commit: see below (single `feat(extension)` commit covering T5 plus the shared `ocr.ts`/`tsconfig.json`/`theme.css` changes it needed).
 
 Deviations from plan interfaces: none functionally — `handleTabUrl` and the tab-verdict cache were factored into a small shared `tabVerdict.ts` module (not named in the plan) purely so the side panel doesn't import `background.ts` and accidentally re-register the `chrome.tabs.onUpdated`/`onRemoved` listeners; the exported plan-named function (`handleTabUrl`) and its behavior are unchanged.
+
+### UI defects fix (post-T5 review, before T6) — done
+Parent reviewed T4/T5 E2E screenshots (`sms_scam_light.png`, `sidepanel_after_danger.png`) and found 5 defects. Fixed all, commit `251634a` `fix(frontend): polish chat layout, verdict summary and metrics labels`:
+1. Composer overlapped content with a transparent-looking background (page-level `position: sticky` inside a non-height-constrained `.app`). Fixed: `.app` is now `height: 100dvh; overflow: hidden` (an `overflow-y: auto` fallback for the side panel's extra sections), `.chat`/`.chat__scroll` are height-constrained flex children with `min-height: 0` so only the transcript scrolls, and `.composer` is a normal flex child (no longer sticky) with an opaque `--color-surface-raised` background, a top border and shadow. `Chat.tsx` auto-scrolls the transcript to the newest message via a ref.
+2. Verdict summary repeated the first reason (`reasons[0]` was reused as the summary). Fixed in `chatEngine.ts`: `SUMMARY_BY_LEVEL` gives one fixed plain-language sentence per level (danger/caution/safe, exact text from the review), independent of `reasons`.
+3. "1 peligrosas" (missing singular). Fixed in `MetricsTiles.tsx` with a `pluralize(count, singular, plural)` helper applied to both the danger count and the "amenaza(s) detectada(s)" subtitle/aria text.
+4. Side panel had a large empty gap under "Preguntanos". Fixed: the chat's `<section>` got `.sidepanel__chat-section` (`flex: 1; min-height: 18rem`) so it grows to fill the remaining height instead of the composer sticking mid-page; a `max-width: 420px` media query tightens `.app` padding and metrics-tile sizing for ~360-400px widths.
+5. Side panel's current-tab verdict card didn't show what was analyzed. Added an optional `subject` prop to `VerdictCard` (rendered above the headline); `sidepanel.tsx` passes the URL's `hostname` (via a `hostOf()` helper, falling back to the raw string if unparseable).
+
+New/changed tests: `chatEngine.test.ts` (summary is a level sentence, not `reasons[0]`, for danger/caution/safe), `VerdictCard.test.tsx` (new — summary not duplicated in the `<li>` list, subject renders only when given), `MetricsTiles.test.tsx` (new — singular "1 peligrosa"/"amenaza detectada" vs plural for 0/2+).
+
+- `npx vitest run`: 8 files, 39 tests, all passed (33 prior + 6 new).
+- `npm run build` / `npm run build:ext`: both succeeded, unchanged output shape.
+- Re-ran E2E with Playwright (real backend on :8000, PWA preview on :4173, extension built and loaded headless as in T5) and saved screenshots to `scratchpad/shots/v2/`: `pwa_empty_state.png`, `pwa_sms_scam_viewport.png`, `pwa_sms_scam_fullpage.png`, `pwa_sms_scam_verdict_top.png`, `pwa_dark.png`, `pwa_aplusplus.png`, `sidepanel_after_danger_380.png`, `sidepanel_380_scroll_{top,mid,bottom}.png` — all visually inspected: composer never overlaps the transcript/empty-state/lesson cards in any of them (bounding-box check in the driver script also asserted no vertical intersection between `.composer` and `.chat__scroll`), verdict summary sentence differs from the first bullet, metrics show "1 peligrosa"/"1 amenaza detectada" (singular), side panel's current-tab card shows the host (`bna-homebanking-verificar.xyz`) above the verdict, no dead gap under "Preguntanos" (chat section now fills remaining height; side panel scrolls as one column when content exceeds the viewport, same as a normal page). Scratch driver scripts (`.scratch-e2e-v2.mjs`, `.scratch-ext-v2.mjs`, `.scratch-ext-scroll.mjs`, `.scratch-top.mjs`) deleted after the run, not committed.
+
+### T6 — DEMO.md + final verification (done)
+- Wrote root `DEMO.md` (Spanish): requisitos (uv, Node 24, Ollama signed in + `nemotron-3-nano:30b-cloud`), levantar backend/PWA/extensión, checklist de 1 minuto, 5 casos de demo with real backend output pasted (link falso de banco, SMS, captura de WhatsApp, sitio legítimo, acortador) plus a free chat question, "Puntos para la defensa", "Si algo falla en vivo", "Preguntas probables del jurado" (5 Q&A).
+- Generated `docs/demo/whatsapp-estafa.png` via a Playwright screenshot of an HTML WhatsApp-style chat bubble (scam text impersonating Banco Nación); referenced from `DEMO.md`.
+- All 5 demo cases plus the free question were run live against the real backend (`localhost:8000`) and real Ollama (`nemotron-3-nano:30b-cloud` via Ollama Cloud) on 2026-09-24; outputs pasted verbatim into `DEMO.md` (case 1 `danger`/`blacklisted` score 1.0; case 2 `danger`/`impersonation` score 0.95, 3 lessons; case 3 text extracted from the generated WhatsApp image analyzed as `danger`/`blacklisted`, 4 signals, 5 lessons; case 4 `safe`/`none` score 0.15, whitelisted; case 5 `caution`/`hidden_destination` score 0.65; free question answered in ~6.7s, `fallback: false`).
+- Final full checks: `cd backend && uv run pytest -q` → 123 passed. `cd frontend && npm test -- --run` → 8 files, 39 tests passed. `cd frontend && npm run build` → succeeded (`dist/manifest.webmanifest`, `dist/sw.js` present). `cd frontend && npm run build:ext` → succeeded (`dist-extension/{manifest.json,background.js,sidepanel.html,sidepanel.js,...}`).
+- Commit: `docs: add demo guide and final verification evidence` (includes `DEMO.md`, `docs/demo/whatsapp-estafa.png`, this tracker update). No push (per delivery policy).
