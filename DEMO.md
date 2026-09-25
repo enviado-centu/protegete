@@ -1,7 +1,7 @@
 # Guía de demo — Alerta Estafa
 
 Guía rápida para levantar el proyecto y mostrarlo en vivo: backend, PWA y
-extensión de Chrome, con 5 casos de prueba y sus respuestas reales.
+extensión de Chrome, con 6 casos de prueba y sus respuestas reales.
 
 ## Requisitos
 
@@ -76,7 +76,7 @@ chat.
    está activo). Si falla, la demo sigue: el chat solo pierde la respuesta
    conversacional adicional (capa B), no el veredicto principal (capa A).
 
-## 5 casos de demo
+## 6 casos de demo
 
 Todos los casos fueron ejecutados contra el backend real (no simulados)
 el 2026-09-24.
@@ -195,6 +195,38 @@ curl -s -X POST http://localhost:8000/api/analyze \
 - ML `probability: 0.994`, `flagged: true`, features top: `es_acortador`,
   `tld_comun`, `longitud_dominio`.
 
+### Caso 6 — Sitio de fútbol pirata (sin marca que imitar)
+
+**Input:** `https://futbollibrefullhd.org/` (sitio argentino de fútbol
+pirata gratis; la familia futbollibre/rojadirecta/pelotalibre es conocida
+por publicidad engañosa, botones de "play" falsos y pop-ups con virus, y
+cambia de dominio constantemente -- Chrome/Edge ya lo marcan como
+peligroso vía Google Safe Browsing / Microsoft SmartScreen).
+
+```bash
+curl -s -X POST http://localhost:8000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"url":"https://futbollibrefullhd.org/"}'
+```
+
+**Salida real observada:**
+- `level: "danger"`, `category: "risky_site"`, `score: 0.85`
+- Razón: "Es un sitio de fútbol o series gratis sin permiso: suelen tener
+  publicidad engañosa, botones falsos y virus."
+- Tip: "No hagas clic en los botones de 'Ver' ni descargues nada. Mirá los
+  partidos en plataformas oficiales."
+- Regla disparada: `pirate_streaming` (peso 0.85) -- un marcador de familia
+  determinístico y 100% offline, no depende de la reputación online.
+- ML `probability: 0.187`, `flagged: false` (el modelo entrenado no lo
+  detecta solo: esta regla es la que cierra el hueco).
+- `details.reputation: "unavailable"` (sin `GOOGLE_SAFE_BROWSING_API_KEY`
+  configurada en esta demo).
+
+Antes de esta mejora, la misma URL daba `safe` (score 0.145, sin reglas):
+no hay marca que imitar, así que las reglas de impersonation/estructura de
+URL no alcanzaban. Contraejemplo de sitio oficial que **no** se marca:
+`https://www.tycsports.com/envivo` sigue dando `safe` (whitelist).
+
 ### Pregunta libre para el chat (capa B / LLM)
 
 **Input:** `¿Cómo verifico si un mail del banco es realmente oficial?`
@@ -308,3 +340,12 @@ un modelo ML liviano corren en el mismo proceso FastAPI. La capa B (LLM) es
 la única con costo variable por request, y es opcional/aditiva por diseño:
 si el volumen crece, se puede limitar o cachear sin afectar el veredicto
 principal, que es lo que efectivamente protege al usuario.
+
+**¿De dónde sacan la reputación de un sitio (caso 6, fútbol pirata)?**
+De dos fuentes, ambas opcionales de combinar: una regla determinística y
+100% offline (familia de marcadores de dominios conocidos de streaming
+pirata, sin depender de ningún servicio externo) y, opcionalmente, Google
+Safe Browsing v4 (la misma base que usa Chrome/Edge para las páginas rojas
+de advertencia) si se configura una API key -- sin key, simplemente no se
+hace esa llamada y el veredicto sigue funcionando igual con la regla
+offline. Nunca dependemos de un solo proveedor externo para decidir.
