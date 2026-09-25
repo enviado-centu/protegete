@@ -52,25 +52,68 @@ export function StatusPill({ tabVerdict, lessons }: StatusPillProps) {
   const lesson = lessonId ? lessons.find((entry) => entry.id === lessonId) : undefined
 
   return (
-    <details className={`status-pill status-pill--${tabVerdict.level}`}>
+    <>
+      <details className={`status-pill status-pill--${tabVerdict.level}`}>
+        <summary
+          className="status-pill__summary"
+          aria-label={`Veredicto de esta página: ${word}, ${host}. Tocá para ver más detalles.`}
+        >
+          <span aria-hidden="true">{icon}</span>
+          <strong className="status-pill__word">{word}</strong>
+          <span className="status-pill__host">· {host}</span>
+        </summary>
+        <div className="status-pill__body">
+          <p>{tabVerdict.tip}</p>
+          {tabVerdict.reasons.length > 0 && (
+            <ul className="status-pill__reasons">
+              {tabVerdict.reasons.map((reason) => (
+                <li key={reason}>{reason}</li>
+              ))}
+            </ul>
+          )}
+          {lesson && <LessonCard lesson={lesson} />}
+        </div>
+      </details>
+      <PageSignalsSection tabVerdict={tabVerdict} />
+    </>
+  )
+}
+
+export interface PageSignalsSectionProps {
+  tabVerdict: CachedTabVerdict | null
+}
+
+/**
+ * Expandable "Lo que encontramos en la página" section, fed by the
+ * in-browser page signal probe (Feature C). Only rendered when the cached
+ * verdict carries page signals. Reuses the exact same `<details>` /
+ * `.status-pill__body` / `.status-pill__reasons` pattern as the main
+ * verdict pill above, for visual and accessibility consistency.
+ */
+export function PageSignalsSection({ tabVerdict }: PageSignalsSectionProps) {
+  const pageSignals = tabVerdict?.pageSignals
+  if (!pageSignals || pageSignals.length === 0) return null
+
+  const pageLessons = tabVerdict?.pageLessons ?? []
+
+  return (
+    <details className="status-pill status-pill--page-signals">
       <summary
         className="status-pill__summary"
-        aria-label={`Veredicto de esta página: ${word}, ${host}. Tocá para ver más detalles.`}
+        aria-label="Lo que encontramos en la página. Tocá para ver más detalles."
       >
-        <span aria-hidden="true">{icon}</span>
-        <strong className="status-pill__word">{word}</strong>
-        <span className="status-pill__host">· {host}</span>
+        <span aria-hidden="true">🔍</span>
+        <strong className="status-pill__word">Lo que encontramos en la página</strong>
       </summary>
       <div className="status-pill__body">
-        <p>{tabVerdict.tip}</p>
-        {tabVerdict.reasons.length > 0 && (
-          <ul className="status-pill__reasons">
-            {tabVerdict.reasons.map((reason) => (
-              <li key={reason}>{reason}</li>
-            ))}
-          </ul>
-        )}
-        {lesson && <LessonCard lesson={lesson} />}
+        <ul className="status-pill__reasons">
+          {pageSignals.map((signal) => (
+            <li key={signal.id}>{signal.reason}</li>
+          ))}
+        </ul>
+        {pageLessons.map((pageLesson) => (
+          <LessonCard key={pageLesson.id} lesson={pageLesson} />
+        ))}
       </div>
     </details>
   )

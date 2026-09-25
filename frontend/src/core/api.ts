@@ -1,4 +1,12 @@
-import type { ChatAnswer, ChatContext, Lesson, TextVerdict, UrlVerdict } from './types'
+import type {
+  AnalyzePageResult,
+  ChatAnswer,
+  ChatContext,
+  Lesson,
+  PageSignals,
+  TextVerdict,
+  UrlVerdict,
+} from './types'
 
 export const API_BASE: string =
   (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8000'
@@ -59,6 +67,15 @@ export function analyzeUrl(url: string): Promise<UrlVerdict> {
 
 export function analyzeText(text: string): Promise<TextVerdict> {
   return post<TextVerdict>('/api/analyze-text', { text })
+}
+
+/**
+ * Sends page content signals collected entirely in-browser (Feature C) for
+ * enrichment. Only the booleans/counts/matched-name lists in `signals` are
+ * sent — never page HTML/script text or cookie values.
+ */
+export function analyzePage(url: string, signals: PageSignals): Promise<AnalyzePageResult> {
+  return post<AnalyzePageResult>('/api/analyze-page', { url, signals })
 }
 
 export function getLessons(): Promise<Lesson[]> {

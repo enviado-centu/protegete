@@ -2,7 +2,7 @@
 // last verdict computed for a tab, cached in chrome.storage.session (never
 // chrome.storage.local, so it never survives a browser restart).
 
-import type { Level } from '../core/types'
+import type { Lesson, Level, PageSignal } from '../core/types'
 
 export interface CachedTabVerdict {
   url: string
@@ -11,6 +11,10 @@ export interface CachedTabVerdict {
   category: string
   reasons: string[]
   tip: string
+  /** Page-content signals from the in-browser probe (Feature C), when the
+   * /api/analyze-page enrichment has run for this tab. */
+  pageSignals?: PageSignal[]
+  pageLessons?: Lesson[]
 }
 
 function tabVerdictKey(tabId: number): string {

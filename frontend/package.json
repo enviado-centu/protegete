@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "build:ext": "vite build --config vite.extension.config.ts",
+    "build:ext": "vite build --config vite.extension.config.ts && node scripts/build-content-scripts.mjs",
     "preview": "vite preview",
     "test": "vitest",
     "lint": "tsc --noEmit"

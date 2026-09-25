@@ -89,3 +89,34 @@ export type Verdict = UrlVerdict | TextVerdict
 export function isTextVerdict(verdict: Verdict): verdict is TextVerdict {
   return 'signals' in verdict
 }
+
+/**
+ * In-browser page signals sent to POST /api/analyze-page (Feature C). Only
+ * booleans/counts/matched-name lists ever leave the browser — never page
+ * HTML/script text, URLs beyond the base analyze call, or cookie values.
+ * Field names/types must match the backend contract exactly.
+ */
+export interface PageSignals {
+  malvertising: string[]
+  cryptominer: boolean
+  obfuscated_js: number
+  hidden_iframes: number
+  insecure_password_form: boolean
+  cross_site_password_form: boolean
+  notification_prompt: boolean
+  popups: number
+  offsite_meta_refresh: boolean
+  third_party_domains: number
+  tracker_cookies: number
+}
+
+export interface PageSignal {
+  id: string
+  reason: string
+}
+
+/** Response of POST /api/analyze-page */
+export interface AnalyzePageResult extends UrlVerdict {
+  page_signals: PageSignal[]
+  lessons: Lesson[]
+}

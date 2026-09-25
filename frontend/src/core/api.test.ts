@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { analyzeText, analyzeUrl, askChat, ApiUnavailableError, ApiValidationError, getLessons } from './api'
+import {
+  analyzePage,
+  analyzeText,
+  analyzeUrl,
+  askChat,
+  ApiUnavailableError,
+  ApiValidationError,
+  getLessons,
+} from './api'
+import type { PageSignals } from './types'
 
 const originalFetch = global.fetch
 
@@ -40,6 +49,36 @@ test('getLessons GETs the lessons endpoint', async () => {
   ;(global.fetch as any).mockResolvedValue({ ok: true, status: 200, json: async () => [] })
   await getLessons()
   expect(global.fetch).toHaveBeenCalledWith(expect.stringContaining('/api/lessons'))
+})
+
+test('analyzePage posts url and signals to /api/analyze-page', async () => {
+  ;(global.fetch as any).mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ url: 'http://x.com', level: 'safe', page_signals: [], lessons: [] }),
+  })
+  const signals: PageSignals = {
+    malvertising: [],
+    cryptominer: false,
+    obfuscated_js: 0,
+    hidden_iframes: 0,
+    insecure_password_form: false,
+    cross_site_password_form: false,
+    notification_prompt: false,
+    popups: 0,
+    offsite_meta_refresh: false,
+    third_party_domains: 0,
+    tracker_cookies: 0,
+  }
+  const result = await analyzePage('http://x.com', signals)
+  expect(result).toEqual({ url: 'http://x.com', level: 'safe', page_signals: [], lessons: [] })
+  expect(global.fetch).toHaveBeenCalledWith(
+    expect.stringContaining('/api/analyze-page'),
+    expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ url: 'http://x.com', signals }),
+    }),
+  )
 })
 
 test('askChat posts message and context', async () => {
