@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ApiUnavailableError,
   ApiValidationError,
@@ -50,6 +50,15 @@ export function Chat({ initialMessages = [] }: ChatProps) {
   const [lessonsCatalog, setLessonsCatalog] = useState<Lesson[]>([])
   const [lastContext, setLastContext] = useState<ChatContext | null>(null)
   const [busy, setBusy] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to the newest message so the composer never covers the
+  // latest reply (spec: message list scrolls, composer stays anchored).
+  useEffect(() => {
+    const node = scrollRef.current
+    if (!node) return
+    node.scrollTop = node.scrollHeight
+  }, [messages])
 
   useEffect(() => {
     let cancelled = false
@@ -148,28 +157,30 @@ export function Chat({ initialMessages = [] }: ChatProps) {
 
   return (
     <div className="chat">
-      <div className="chat__transcript" role="log" aria-live="polite" aria-label="Conversación">
-        {messages.map((message) => (
-          <MessageBubble key={message.id} message={message} onChipSelect={handleSend} />
-        ))}
-      </div>
-      {showEmptyState && (
-        <div className="chat__empty">
-          <p>Pegá un link, un mensaje sospechoso o probá un ejemplo:</p>
-          <div className="chat__examples">
-            {EXAMPLES.map((example) => (
-              <button
-                key={example.label}
-                type="button"
-                className="example-btn"
-                onClick={() => handleSend(example.text)}
-              >
-                {example.label}
-              </button>
-            ))}
-          </div>
+      <div className="chat__scroll" ref={scrollRef}>
+        <div className="chat__transcript" role="log" aria-live="polite" aria-label="Conversación">
+          {messages.map((message) => (
+            <MessageBubble key={message.id} message={message} onChipSelect={handleSend} />
+          ))}
         </div>
-      )}
+        {showEmptyState && (
+          <div className="chat__empty">
+            <p>Pegá un link, un mensaje sospechoso o probá un ejemplo:</p>
+            <div className="chat__examples">
+              {EXAMPLES.map((example) => (
+                <button
+                  key={example.label}
+                  type="button"
+                  className="example-btn"
+                  onClick={() => handleSend(example.text)}
+                >
+                  {example.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
       <Composer
         value={draft}
         onChange={setDraft}

@@ -117,10 +117,12 @@ const VERDICT_ICON: Record<Level, string> = {
   danger: '⛔',
 }
 
-const DEFAULT_SUMMARY: Record<Level, string> = {
-  safe: 'No encontramos señales de riesgo en esto.',
-  caution: 'Encontramos alguna señal de riesgo, prestá atención.',
-  danger: 'Encontramos señales fuertes de estafa, no sigas con esto.',
+// One plain-language sentence per level, independent of the reasons list
+// below it (never repeats the first bullet — spec §4b).
+const SUMMARY_BY_LEVEL: Record<Level, string> = {
+  safe: 'No encontramos señales de estafa, pero siempre conviene revisar.',
+  caution: 'Hay señales sospechosas. Revisalo con calma antes de seguir.',
+  danger: 'Esto tiene señales claras de estafa. No ingreses datos ni hagas clic.',
 }
 
 const QUICK_CHIPS = ['¿Cómo lo reconozco?', '¿Qué hago ahora?']
@@ -148,8 +150,8 @@ export function buildReplyA(
   lessonsCatalog: Lesson[] = [],
 ): Reply {
   const level = verdict.level
-  const reasons = verdict.reasons.length > 0 ? verdict.reasons : []
-  const summary = reasons[0] ?? verdict.tip ?? DEFAULT_SUMMARY[level]
+  const reasons = verdict.reasons
+  const summary = SUMMARY_BY_LEVEL[level]
 
   let lessons: Lesson[]
   let urls: UrlVerdict[]

@@ -24,6 +24,17 @@ async function activeTabId(): Promise<number | null> {
   return tab?.id ?? null
 }
 
+/** Compact subject line for the current-tab verdict card: just the host,
+ * so the card stays readable at side-panel widths (~360-400px). Falls back
+ * to the raw string when it isn't a parseable URL. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url
+  }
+}
+
 function SidePanel() {
   const [tabVerdict, setTabVerdict] = useState<CachedTabVerdict | null>(null)
   const [metrics, setMetrics] = useState<Metrics | null>(null)
@@ -67,6 +78,7 @@ function SidePanel() {
             level={tabVerdict.level}
             word={VERDICT_WORD[tabVerdict.level]}
             icon={VERDICT_ICON[tabVerdict.level]}
+            subject={hostOf(tabVerdict.url)}
             summary={tabVerdict.tip}
             reasons={tabVerdict.reasons}
           />
@@ -82,7 +94,7 @@ function SidePanel() {
         {metrics && <MetricsTiles metrics={metrics} />}
       </section>
 
-      <section aria-label="Chat de ayuda">
+      <section aria-label="Chat de ayuda" className="sidepanel__chat-section">
         <h2 className="sidepanel__section-title">Preguntanos</h2>
         <Chat />
       </section>

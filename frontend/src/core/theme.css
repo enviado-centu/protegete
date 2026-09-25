@@ -182,7 +182,30 @@ button:disabled {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  min-height: 100vh;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.app__main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The side panel stacks extra sections (verdict, metrics) above the chat;
+   only the chat section grows to fill the remaining height so the composer
+   never overlaps content and the transcript scrolls on its own. */
+.app.sidepanel {
+  overflow-y: auto;
+}
+
+.sidepanel__chat-section {
+  flex: 1;
+  min-height: 18rem;
+  display: flex;
+  flex-direction: column;
 }
 
 .app__header {
@@ -222,15 +245,23 @@ button:disabled {
 .chat {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
   flex: 1;
+  min-height: 0;
+}
+
+.chat__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
 }
 
 .chat__transcript {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  min-height: 12rem;
 }
 
 .chat__empty {
@@ -298,6 +329,14 @@ button:disabled {
   border-color: var(--color-danger-border);
 }
 
+.verdict-card__subject {
+  margin: 0 0 var(--space-1);
+  font-size: 0.9rem;
+  font-weight: 600;
+  opacity: 0.8;
+  word-break: break-word;
+}
+
 .verdict-card__headline {
   font-size: 1.25rem;
   margin: 0 0 var(--space-1);
@@ -336,10 +375,12 @@ button:disabled {
   display: flex;
   gap: var(--space-1);
   align-items: flex-end;
-  position: sticky;
-  bottom: 0;
-  background: var(--color-bg);
-  padding-top: var(--space-1);
+  flex-shrink: 0;
+  background: var(--color-surface-raised);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -2px 8px rgba(20, 30, 25, 0.06);
+  padding: var(--space-2);
+  margin: var(--space-1) calc(var(--space-2) * -1) calc(var(--space-2) * -1);
 }
 
 .composer textarea {
@@ -400,6 +441,29 @@ button:disabled {
 
 .sidepanel__section-title {
   margin: 0 0 var(--space-1);
+}
+
+@media (max-width: 420px) {
+  .app {
+    padding: var(--space-1);
+    gap: var(--space-2);
+  }
+
+  .composer {
+    margin: var(--space-1) calc(var(--space-1) * -1) calc(var(--space-1) * -1);
+  }
+
+  .metrics-tiles__grid {
+    gap: var(--space-1);
+  }
+
+  .metrics-tile {
+    padding: var(--space-1);
+  }
+
+  .metrics-tile__number {
+    font-size: 1.75rem;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

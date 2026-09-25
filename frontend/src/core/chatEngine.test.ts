@@ -107,6 +107,23 @@ describe('buildReplyA', () => {
     expect(reply.chips.length).toBeGreaterThan(0)
   })
 
+  test('summary is a level-based sentence, not the first reason repeated', () => {
+    const reply = buildReplyA(baseUrlVerdict)
+    expect(reply.reasons).toEqual(baseUrlVerdict.reasons)
+    expect(reply.summary).not.toBe(reply.reasons[0])
+    expect(reply.summary).toBe(
+      'Esto tiene señales claras de estafa. No ingreses datos ni hagas clic.',
+    )
+  })
+
+  test('caution and safe summaries use their own level sentence', () => {
+    const caution = buildReplyA({ ...baseUrlVerdict, level: 'caution' })
+    expect(caution.summary).toBe('Hay señales sospechosas. Revisalo con calma antes de seguir.')
+    const safe = buildReplyA(textVerdict)
+    expect(safe.summary).toBe('No encontramos señales de estafa, pero siempre conviene revisar.')
+    expect(safe.summary).not.toBe(safe.reasons[0])
+  })
+
   test('maps url category to a lesson id when a catalog is given', () => {
     const catalog: Lesson[] = [
       {
