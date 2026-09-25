@@ -21,6 +21,7 @@ EXPECTED_IDS = {
     "hidden_code",
     "unsafe_forms",
     "fake_qr",
+    "already_scammed",
 }
 
 
@@ -58,3 +59,10 @@ def test_lessons_for_dedupes_and_keeps_catalog_order() -> None:
 
 def test_lessons_for_unknown_id_is_ignored() -> None:
     assert lessons_for(["not_a_real_id"]) == []
+
+
+def test_already_scammed_lesson_has_expected_shape() -> None:
+    [lesson] = lessons_for(["already_scammed"])
+    assert lesson.icon == "🆘"
+    assert lesson.title == "¿Ya caíste? Qué hacer ahora"
+    assert "banco" in lesson.what_to_do.lower()

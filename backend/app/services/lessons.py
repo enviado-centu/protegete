@@ -228,6 +228,23 @@ _LESSONS: tuple[Lesson, ...] = (
             "revisá la dirección antes de tocar algo o cargar datos."
         ),
     ),
+    Lesson(
+        id="already_scammed",
+        icon="🆘",
+        title="¿Ya caíste? Qué hacer ahora",
+        how_to_spot="Ya diste datos, un código o hiciste una transferencia.",
+        example=(
+            '"Puse mi clave en un link y ahora tengo miedo" — le pasa a cualquiera, no '
+            "importa por qué pasó. Si te robaron WhatsApp, recuperalo registrando tu número "
+            "de nuevo, y contale a tu familia para que estén alertas."
+        ),
+        what_to_do=(
+            "Llamá ya al banco (atrás de tu tarjeta, nunca uno por mensaje) y bloqueá todo. "
+            "Cambiá tus claves (mail primero) con doble verificación. Si diste un código, "
+            "avisá y cerrá sesiones. Guardá capturas como prueba. Denunciá en la comisaría o "
+            "fiscalía; si perdiste plata, reclamá en usuariosfinancieros.gob.ar. No te culpes."
+        ),
+    ),
 )
 
 _LESSONS_BY_ID: dict[str, Lesson] = {lesson.id: lesson for lesson in _LESSONS}
