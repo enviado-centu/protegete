@@ -20,6 +20,7 @@ EXPECTED_IDS = {
     "malicious_ads",
     "hidden_code",
     "unsafe_forms",
+    "fake_qr",
 }
 
 

@@ -8,8 +8,12 @@ import type {
   UrlVerdict,
 } from './types'
 
-export const API_BASE: string =
-  (import.meta.env.VITE_API_BASE as string | undefined) ?? 'http://localhost:8000'
+// Empty string means "same origin": requests become relative (`/api/...`),
+// which a Vite dev/preview proxy (see server.proxy in vite.config.ts) or a
+// same-origin deployment can serve without knowing the backend's host.
+// The extension build has no dev server, so it overrides this at build time
+// via `define` in vite.extension.config.ts to always target localhost:8000.
+export const API_BASE: string = (import.meta.env.VITE_API_BASE as string | undefined) ?? ''
 
 /** Thrown when the backend cannot be reached at all (network/CORS/offline). */
 export class ApiUnavailableError extends Error {

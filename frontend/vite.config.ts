@@ -64,6 +64,27 @@ export default defineConfig({
       '@core': fileURLToPath(new URL('./src/core', import.meta.url)),
     },
   },
+  server: {
+    // Bind on all interfaces so the dev server is reachable from a phone on
+    // the same LAN or through a cloudflared tunnel, not just localhost.
+    host: true,
+    proxy: {
+      // Forward relative /api/... calls (see src/core/api.ts) to the FastAPI
+      // backend, so the PWA and backend appear same-origin to the browser.
+      '/api': { target: 'http://localhost:8000', changeOrigin: true },
+    },
+    // Vite rejects unknown Host headers by default; a cloudflared quick
+    // tunnel serves the app under a random *.trycloudflare.com hostname, so
+    // allow that subdomain explicitly.
+    allowedHosts: ['.trycloudflare.com'],
+  },
+  preview: {
+    host: true,
+    proxy: {
+      '/api': { target: 'http://localhost:8000', changeOrigin: true },
+    },
+    allowedHosts: ['.trycloudflare.com'],
+  },
   test: {
     environment: 'jsdom',
     globals: true,

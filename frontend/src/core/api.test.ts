@@ -35,6 +35,37 @@ test('analyzeUrl posts to /api/analyze and returns json', async () => {
   )
 })
 
+test('with no VITE_API_BASE, requests are same-origin (relative /api/... URLs)', async () => {
+  ;(global.fetch as any).mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ url: 'http://x.com', level: 'safe' }),
+  })
+  await analyzeUrl('http://x.com')
+  // Exact match (not just "contains"): no scheme/host prefix at all, so a
+  // Vite dev/preview proxy or same-origin deployment can serve this path
+  // without needing to know the backend's host.
+  expect(global.fetch).toHaveBeenCalledWith('/api/analyze', expect.objectContaining({ method: 'POST' }))
+})
+
+test('when VITE_API_BASE is explicitly set, it is used verbatim as an absolute prefix', async () => {
+  vi.stubEnv('VITE_API_BASE', 'http://localhost:8000')
+  vi.resetModules()
+  const { analyzeUrl: analyzeUrlWithBase } = await import('./api')
+  ;(global.fetch as any).mockResolvedValue({
+    ok: true,
+    status: 200,
+    json: async () => ({ url: 'http://x.com', level: 'safe' }),
+  })
+  await analyzeUrlWithBase('http://x.com')
+  expect(global.fetch).toHaveBeenCalledWith(
+    'http://localhost:8000/api/analyze',
+    expect.objectContaining({ method: 'POST' }),
+  )
+  vi.unstubAllEnvs()
+  vi.resetModules()
+})
+
 test('network failure throws ApiUnavailableError', async () => {
   ;(global.fetch as any).mockRejectedValue(new TypeError('Failed to fetch'))
   await expect(analyzeText('hola')).rejects.toBeInstanceOf(ApiUnavailableError)
