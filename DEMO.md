@@ -130,9 +130,9 @@ En la PWA: pegar el texto en el composer muestra la tarjeta de veredicto
 
 **Input:** una captura de chat de WhatsApp (imagen) con un mensaje de
 estafa suplantando al banco. Generada para esta demo:
-`docs/demo/whatsapp-estafa.png`.
+`demo/whatsapp-estafa.png`.
 
-![Captura de WhatsApp con un mensaje de estafa suplantando al Banco Nación](docs/demo/whatsapp-estafa.png)
+![Captura de WhatsApp con un mensaje de estafa suplantando al Banco Nación](demo/whatsapp-estafa.png)
 
 En vivo: usar el botón 🖼️ del composer (o pegar la imagen) para subirla.
 El OCR corre en el dispositivo (tesseract.js) y extrae el texto, que se

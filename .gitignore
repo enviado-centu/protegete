@@ -1,0 +1,8 @@
+# Local-only working notes (kept out of the repo)
+docs/
+odd/
+
+# Local tooling / separate repos
+.claude/
+.atl/
+MODULO-PY/
