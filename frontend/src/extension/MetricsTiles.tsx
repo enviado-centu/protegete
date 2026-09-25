@@ -6,7 +6,7 @@ export interface MetricsTilesProps {
 
 const TILES: Array<{ key: keyof Metrics; caption: string }> = [
   { key: 'today', caption: 'Hoy' },
-  { key: 'week', caption: 'Esta semana' },
+  { key: 'week', caption: 'Semana' },
   { key: 'total', caption: 'Total' },
 ]
 
@@ -41,7 +41,6 @@ export function MetricsTiles({ metrics }: MetricsTilesProps) {
                 {counts.total}
               </p>
               <p className="metrics-tile__caption">{caption}</p>
-              <p className="metrics-tile__subtitle">{threatsLabel}</p>
               {counts.danger > 0 && (
                 <p className="metrics-tile__danger">
                   {counts.danger} {dangerLabel}

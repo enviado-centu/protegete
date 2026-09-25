@@ -20,13 +20,13 @@ describe('MetricsTiles pluralization', () => {
     expect(screen.getAllByText('2 peligrosas').length).toBeGreaterThan(0)
   })
 
-  test('singular for exactly 1 threat detected in the subtitle', () => {
+  test('singular for exactly 1 threat detected in the accessible label', () => {
     render(<MetricsTiles metrics={metrics(0, 1)} />)
-    expect(screen.getAllByText('amenaza detectada').length).toBeGreaterThan(0)
+    expect(screen.getByRole('group', { name: 'Hoy: 1 amenaza detectada' })).toBeInTheDocument()
   })
 
-  test('plural for 0 threats detected in the subtitle', () => {
+  test('plural for 0 threats detected in the accessible label', () => {
     render(<MetricsTiles metrics={metrics(0, 0)} />)
-    expect(screen.getAllByText('amenazas detectadas').length).toBeGreaterThan(0)
+    expect(screen.getByRole('group', { name: 'Hoy: 0 amenazas detectadas' })).toBeInTheDocument()
   })
 })

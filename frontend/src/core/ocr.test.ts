@@ -43,3 +43,16 @@ test('extractText rejects after a 45s safety timeout and still terminates the wo
 
   expect(terminate).toHaveBeenCalled()
 })
+
+test('extractText also times out when the OCR worker never finishes loading', async () => {
+  vi.useFakeTimers()
+  // Simulate a worker that never becomes ready (e.g. its script is blocked).
+  createWorker.mockReturnValueOnce(new Promise(() => {}) as never)
+
+  const { extractText, OCR_TIMEOUT_MS } = await import('./ocr')
+  const result = extractText(new Blob(['fake image bytes']))
+  const assertion = expect(result).rejects.toThrow('OCR_TIMEOUT')
+
+  await vi.advanceTimersByTimeAsync(OCR_TIMEOUT_MS)
+  await assertion
+})

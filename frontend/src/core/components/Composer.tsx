@@ -103,7 +103,7 @@ export function Composer({ value, onChange, onSend, onImage, disabled }: Compose
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
-        placeholder="Pegá un link, un mensaje o una captura..."
+        placeholder="Escribí o pegá acá…"
         rows={1}
         disabled={disabled}
       />

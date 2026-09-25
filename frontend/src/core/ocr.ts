@@ -20,30 +20,51 @@ function assetPath(relative: string): string {
  * rejects and the caller (Chat) shows OCR_FAILED_MESSAGE. */
 export const OCR_TIMEOUT_MS = 45_000
 
-/** Extracts Spanish text from an image (screenshot of a scam message). */
-export async function extractText(file: Blob): Promise<string> {
-  const { createWorker } = await import('tesseract.js')
-  const worker = await createWorker('spa', 1, {
-    workerPath: assetPath('worker.min.js'),
-    corePath: assetPath('tesseract-core-lstm.wasm.js'),
-    langPath: assetPath(''),
-    gzip: true,
-    // Inside the MV3 extension a blob: worker cannot importScripts() a
-    // chrome-extension:// URL, so the worker must be created from its file.
-    workerBlobURL: !hasChromeRuntime(),
-  })
+/** Rejects with OCR_TIMEOUT if `work` does not settle within OCR_TIMEOUT_MS. */
+function withTimeout<T>(work: Promise<T>): Promise<T> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined
-  try {
-    const recognition = worker.recognize(file)
-    const timeout = new Promise<never>((_resolve, reject) => {
-      timeoutId = setTimeout(() => reject(new Error('OCR_TIMEOUT')), OCR_TIMEOUT_MS)
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timeoutId = setTimeout(() => reject(new Error('OCR_TIMEOUT')), OCR_TIMEOUT_MS)
+  })
+  return Promise.race([work, timeout]).finally(() => clearTimeout(timeoutId))
+}
+
+type OcrWorker = Awaited<ReturnType<typeof import('tesseract.js')['createWorker']>>
+
+/** Extracts Spanish text from an image (screenshot of a scam message).
+ * The timeout covers loading the worker too, not only recognition: a worker
+ * whose script or wasm is blocked never becomes ready and never rejects.
+ * The worker is terminated on every outcome, including a timeout. */
+export async function extractText(file: Blob): Promise<string> {
+  let worker: OcrWorker | undefined
+  let timedOut = false
+  const work = (async () => {
+    const { createWorker } = await import('tesseract.js')
+    const created = await createWorker('spa', 1, {
+      workerPath: assetPath('worker.min.js'),
+      corePath: assetPath('tesseract-core-lstm.wasm.js'),
+      langPath: assetPath(''),
+      gzip: true,
+      // Inside the MV3 extension a blob: worker cannot importScripts() a
+      // chrome-extension:// URL, so the worker must be created from its file.
+      workerBlobURL: !hasChromeRuntime(),
     })
+    if (timedOut) {
+      await created.terminate()
+      throw new Error('OCR_TIMEOUT')
+    }
+    worker = created
     const {
       data: { text },
-    } = await Promise.race([recognition, timeout])
+    } = await created.recognize(file)
     return text.trim()
+  })()
+  try {
+    return await withTimeout(work)
+  } catch (error) {
+    timedOut = true
+    throw error
   } finally {
-    if (timeoutId !== undefined) clearTimeout(timeoutId)
-    await worker.terminate()
+    await worker?.terminate()
   }
 }
