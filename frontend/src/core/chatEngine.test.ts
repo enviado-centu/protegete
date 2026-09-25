@@ -1,5 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { classifyInput, matchLessons, buildReplyA, CATEGORY_TO_LESSON_ID } from './chatEngine'
+import {
+  classifyInput,
+  matchLessons,
+  buildReplyA,
+  CATEGORY_TO_LESSON_ID,
+  isAlreadyScammedTrigger,
+  containsUrl,
+  DANGER_RECOVERY_CHIP,
+} from './chatEngine'
 import type { Lesson, TextVerdict, UrlVerdict } from './types'
 
 test('url', () => expect(classifyInput('mercad0pago.com.ar')).toBe('url'))
@@ -172,5 +180,64 @@ describe('buildReplyA', () => {
     ]
     const reply = buildReplyA({ ...baseUrlVerdict, category: 'malicious' }, catalog)
     expect(reply.lessons.map((l) => l.id)).toContain('malicious_site')
+  })
+
+  test('a danger verdict adds the recovery chip on top of the quick chips', () => {
+    const reply = buildReplyA(baseUrlVerdict)
+    expect(reply.chips).toContain(DANGER_RECOVERY_CHIP)
+    expect(reply.chips.length).toBeGreaterThan(2)
+  })
+
+  test('caution and safe verdicts show no recovery chip', () => {
+    const caution = buildReplyA({ ...baseUrlVerdict, level: 'caution' })
+    expect(caution.chips).not.toContain(DANGER_RECOVERY_CHIP)
+    const safe = buildReplyA(textVerdict)
+    expect(safe.chips).not.toContain(DANGER_RECOVERY_CHIP)
+  })
+})
+
+describe('isAlreadyScammedTrigger', () => {
+  const positives = [
+    'ya puse mis datos',
+    'Ya puse mis datos en la página',
+    'me estafaron',
+    'Me ESTAFARON con un link',
+    'caí en una estafa',
+    'cai en una estafa por WhatsApp',
+    'me robaron la cuenta',
+    'me robaron el whatsapp',
+    'les pasé el código',
+    'le pasé el código de la app',
+    'ya hice la transferencia',
+    'me hackearon',
+  ]
+
+  for (const phrase of positives) {
+    test(`detects "${phrase}"`, () => {
+      expect(isAlreadyScammedTrigger(phrase)).toBe(true)
+    })
+  }
+
+  const negatives = [
+    '¿Cómo me doy cuenta de una estafa?',
+    '¿Es seguro pagar con QR?',
+    'como se yo si es una estafa',
+    'mercad0pago.com.ar',
+    '¿Qué hago si me piden el código?',
+  ]
+
+  for (const phrase of negatives) {
+    test(`does not trigger on "${phrase}"`, () => {
+      expect(isAlreadyScammedTrigger(phrase)).toBe(false)
+    })
+  }
+})
+
+describe('containsUrl', () => {
+  test('detects a url inside a longer message', () => {
+    expect(containsUrl('ya puse mis datos en http://mercadopago-reintegros.com')).toBe(true)
+  })
+  test('plain phrase has no url', () => {
+    expect(containsUrl('ya puse mis datos')).toBe(false)
   })
 })

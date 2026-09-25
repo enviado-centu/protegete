@@ -7,7 +7,18 @@ import {
   askChat,
   getLessons,
 } from '../api'
-import { buildReplyA, classifyInput, matchLessons, type InputKind, type Reply } from '../chatEngine'
+import {
+  ALREADY_SCAMMED_INTRO,
+  ALREADY_SCAMMED_LESSON_ID,
+  DANGER_RECOVERY_CHIP,
+  buildReplyA,
+  classifyInput,
+  containsUrl,
+  isAlreadyScammedTrigger,
+  matchLessons,
+  type InputKind,
+  type Reply,
+} from '../chatEngine'
 import { extractText } from '../ocr'
 import { decodeQrFromImage } from '../qr'
 import { newId } from '../id'
@@ -295,11 +306,31 @@ export function Chat({
     }
   }
 
+  /** Appends the deterministic "already scammed" recovery guide (spec: layer
+   * A, no LLM). Shown as a plain assistant bubble (intro text + the
+   * `already_scammed` lesson card, always expanded -- unlike a layer-B
+   * answer's lessons, which collapse under "Aprendé más"). */
+  function appendAlreadyScammedGuide() {
+    const lessons = lessonsCatalog.filter((lesson) => lesson.id === ALREADY_SCAMMED_LESSON_ID)
+    append({ id: newId(), role: 'assistantA', text: ALREADY_SCAMMED_INTRO, lessons })
+  }
+
   async function handleSend(raw: string) {
     const trimmed = raw.trim()
     if (!trimmed || busy) return
     append({ id: newId(), role: 'user', text: trimmed })
     setDraft('')
+
+    // The "already scammed" trigger (typed phrase, or the danger verdict's
+    // recovery chip) takes precedence over normal URL/text analysis and
+    // needs no backend call. A message that ALSO contains a URL still gets
+    // the guide first, then keeps the existing analysis pipeline running for
+    // that link -- simplest correct behavior, not a merged/custom reply.
+    if (isAlreadyScammedTrigger(trimmed) || trimmed === DANGER_RECOVERY_CHIP) {
+      appendAlreadyScammedGuide()
+      if (!containsUrl(trimmed)) return
+    }
+
     setBusy(true)
     try {
       await runAnalysis(trimmed)

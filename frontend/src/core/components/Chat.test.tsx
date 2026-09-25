@@ -314,6 +314,116 @@ describe('Chat', () => {
   })
 })
 
+describe('Chat already-scammed recovery guide', () => {
+  beforeEach(() => {
+    // This file's api/ocr/qr mocks persist across tests (no clearMocks in
+    // vite.config.ts) -- reset call history so this describe's
+    // toHaveBeenCalled()/not assertions only see its own calls.
+    vi.clearAllMocks()
+    vi.mocked(api.getLessons).mockResolvedValue([
+      {
+        id: 'already_scammed',
+        icon: '🆘',
+        title: '¿Ya caíste? Qué hacer ahora',
+        how_to_spot: 'x',
+        example: 'y',
+        what_to_do: 'z',
+      },
+      {
+        id: 'urgency',
+        icon: '⏰',
+        title: 'Te apuran para que no pienses',
+        how_to_spot: 'x',
+        example: 'y',
+        what_to_do: 'z',
+      },
+    ])
+    vi.mocked(api.askChat).mockResolvedValue({ answer: null, fallback: true })
+    vi.mocked(qr.decodeQrFromImage).mockResolvedValue(null)
+  })
+
+  test('a trigger phrase shows the guide immediately with no analyze call', async () => {
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, 'me estafaron, ya puse mis datos')
+
+    expect(await screen.findByText('¿Ya caíste? Qué hacer ahora')).toBeInTheDocument()
+    expect(screen.getByText(/tranqui, actuemos rápido/i)).toBeInTheDocument()
+    expect(api.analyzeText).not.toHaveBeenCalled()
+    expect(api.analyzeUrl).not.toHaveBeenCalled()
+  })
+
+  test('a trigger phrase that also contains a URL still shows the guide first and keeps analyzing the link', async () => {
+    vi.mocked(api.analyzeText).mockResolvedValue({
+      level: 'danger',
+      score: 0.9,
+      category: 'none',
+      reasons: [],
+      tip: 'x',
+      signals: [],
+      lessons: [],
+      urls: [],
+    })
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, 'ya puse mis datos en http://mercadopago-reintegros.com')
+
+    expect(await screen.findByText('¿Ya caíste? Qué hacer ahora')).toBeInTheDocument()
+    await waitFor(() => expect(api.analyzeText).toHaveBeenCalled())
+  })
+
+  test('a normal question does not trigger the guide', async () => {
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, '¿cómo me doy cuenta de una estafa?')
+
+    await waitFor(() => expect(api.askChat).toHaveBeenCalled())
+    expect(screen.queryByText(/tranqui, actuemos rápido/i)).not.toBeInTheDocument()
+  })
+
+  test('a danger verdict shows the recovery chip, and tapping it shows the guide', async () => {
+    vi.mocked(api.analyzeUrl).mockResolvedValue({
+      url: 'http://bna-homebanking-verificar.xyz',
+      level: 'danger',
+      score: 0.9,
+      category: 'suspicious_domain',
+      reasons: ['El sitio imita a un banco pero no es su dirección oficial.'],
+      tip: 'No ingreses tus datos ahí.',
+      ml: { probability: 0.9, threshold: 0.5, flagged: true, top_features: [] },
+      rules: [{ id: 'fake_domain', weight: 0.5 }],
+      details: { blacklist: false, whitelist: false, ml_probability: 0.9, reputation: 'unavailable' },
+    })
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, 'bna-homebanking-verificar.xyz')
+
+    const chip = await screen.findByRole('button', { name: /ya pusiste tus datos/i })
+    await userEvent.click(chip)
+
+    expect(await screen.findByText('¿Ya caíste? Qué hacer ahora')).toBeInTheDocument()
+  })
+
+  test('safe and caution verdicts show no recovery chip', async () => {
+    vi.mocked(api.analyzeUrl).mockResolvedValue({
+      url: 'https://mercadopago.com.ar',
+      level: 'safe',
+      score: 0,
+      category: 'none',
+      reasons: [],
+      tip: 'Todo bien.',
+      ml: { probability: 0, threshold: 0.5, flagged: false, top_features: [] },
+      rules: [],
+      details: { blacklist: false, whitelist: true, ml_probability: 0, reputation: 'clean' },
+    })
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, 'mercadopago.com.ar')
+
+    await screen.findByText('Parece seguro')
+    expect(screen.queryByRole('button', { name: /ya pusiste tus datos/i })).not.toBeInTheDocument()
+  })
+})
+
 describe('Chat QR scanning', () => {
   let originalMediaDevices: typeof navigator.mediaDevices
 

@@ -129,6 +129,46 @@ const SUMMARY_BY_LEVEL: Record<Level, string> = {
 
 const QUICK_CHIPS = ['¿Cómo lo reconozco?', '¿Qué hago ahora?']
 
+/** Lesson id (see backend `lessons.py`) for the "already scammed" recovery
+ * guide, and the chat copy that introduces it. */
+export const ALREADY_SCAMMED_LESSON_ID = 'already_scammed'
+export const ALREADY_SCAMMED_INTRO = 'Tranqui, actuemos rápido. Hacé esto ahora, en este orden:'
+
+/** Entry point shown as an extra chip on a `danger` verdict (spec: "Danger
+ * verdict entry point"). Reuses the same trigger path as a typed phrase --
+ * see `isAlreadyScammedTrigger`'s caller in `Chat.tsx`. */
+export const DANGER_RECOVERY_CHIP = '¿Ya pusiste tus datos? Qué hacer ahora'
+
+// Deterministic (layer A) phrases that mean "I already fell for a scam":
+// each pattern pairs a self-report verb/phrase with its most likely object,
+// so a stray "estafa" or "código" in an unrelated question doesn't misfire.
+// Matched against `normalize(text)` (accent/case-insensitive).
+const ALREADY_SCAMMED_PATTERNS: RegExp[] = [
+  /\bya\s+(puse|di|pase|comparti|entregue)\b[\s\S]{0,25}\b(datos|clave|contrasena|codigo|tarjeta)\b/,
+  /\bme\s+estafaron\b/,
+  /\b(cai|caiste|cayo)\b[\s\S]{0,15}\b(estafa|trampa|engano)\b/,
+  /\bme\s+robaron\b[\s\S]{0,20}\b(cuenta|whatsapp|plata|tarjeta)\b/,
+  /\ble[s]?\s+pase\b[\s\S]{0,15}\bcodigo\b/,
+  /\bya\s+(hice|realice)\b[\s\S]{0,15}\btransferencia\b/,
+  /\bme\s+hackearon\b/,
+]
+
+/** True when `raw` reports the user already fell for a scam (spec: layer A
+ * trigger, no LLM needed). Takes precedence over normal URL/text analysis in
+ * `Chat.tsx`. */
+export function isAlreadyScammedTrigger(raw: string): boolean {
+  const text = normalize(raw)
+  return ALREADY_SCAMMED_PATTERNS.some((pattern) => pattern.test(text))
+}
+
+/** True when `raw` contains a URL anywhere in it (not just as the whole
+ * input) -- used to decide whether the normal analysis pipeline should still
+ * run after the recovery guide (spec: "if the message ALSO contains a URL,
+ * still show the guide first and keep the existing analysis behavior"). */
+export function containsUrl(raw: string): boolean {
+  return HAS_URL_RE.test(raw)
+}
+
 export interface Reply {
   level: Level
   word: string
@@ -175,7 +215,7 @@ export function buildReplyA(
     summary,
     reasons,
     lessons,
-    chips: QUICK_CHIPS,
+    chips: level === 'danger' ? [...QUICK_CHIPS, DANGER_RECOVERY_CHIP] : QUICK_CHIPS,
     urls,
   }
 }

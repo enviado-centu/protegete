@@ -17,9 +17,13 @@ function spokenTextFor(message: ChatMessage): string {
     return [word, summary, ...reasons, lessonText].filter(Boolean).join('. ')
   }
   if (message.lessons) {
-    return message.lessons
+    const lessonText = message.lessons
       .map((lesson) => `${lesson.title}. ${lesson.how_to_spot}. ${lesson.what_to_do}`)
       .join(' ')
+    // A lessons-only bubble can also carry intro text (e.g. the already-
+    // scammed guide's "Tranqui, actuemos rápido…" sentence) -- read it
+    // first so 🔊 Escuchar covers the full bubble, not just the lessons.
+    return [message.text, lessonText].filter(Boolean).join('. ')
   }
   return message.text ?? ''
 }
