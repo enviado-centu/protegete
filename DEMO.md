@@ -1,4 +1,4 @@
-# Guía de demo — Alerta Estafa
+# Guía de demo — Protegete
 
 Guía rápida para levantar el proyecto y mostrarlo en vivo: backend, PWA y
 extensión de Chrome, con 6 casos de prueba y sus respuestas reales.

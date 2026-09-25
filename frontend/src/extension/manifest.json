@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Alerta Estafa",
-  "short_name": "Alerta Estafa",
+  "name": "Protegete",
+  "short_name": "Protegete",
   "description": "Te avisa cuando el sitio que estás visitando parece una estafa y te enseña a reconocerlas.",
   "version": "0.1.0",
   "permissions": ["tabs", "storage", "sidePanel"],
@@ -14,7 +14,7 @@
     "default_path": "sidepanel.html"
   },
   "action": {
-    "default_title": "Alerta Estafa",
+    "default_title": "Protegete",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png",

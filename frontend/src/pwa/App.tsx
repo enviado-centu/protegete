@@ -10,9 +10,9 @@ export default function App() {
         <div className="app__brand">
           <ShieldIcon />
           <div>
-            <h1>Alerta Estafa</h1>
+            <h1>Protegete</h1>
             <p className="app__tagline">
-              Te ayudamos a detectar estafas y a aprender a reconocerlas
+              Detectá la estafa y aprendé a cuidarte
             </p>
           </div>
         </div>

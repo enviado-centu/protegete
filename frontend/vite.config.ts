@@ -34,10 +34,10 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/shield.svg'],
       manifest: {
-        name: 'Alerta Estafa',
-        short_name: 'Alerta Estafa',
+        name: 'Protegete',
+        short_name: 'Protegete',
         description:
-          'Te ayudamos a detectar estafas y a aprender a reconocerlas.',
+          'Detectá la estafa y aprendé a cuidarte',
         lang: 'es-AR',
         theme_color: '#2d6a4f',
         background_color: '#ffffff',

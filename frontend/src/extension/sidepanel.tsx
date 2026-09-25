@@ -79,7 +79,7 @@ function SidePanel() {
       <header className="sidepanel__topbar">
         <div className="sidepanel__brand">
           <ShieldIcon size={22} />
-          <span className="sidepanel__brand-name">Alerta Estafa</span>
+          <span className="sidepanel__brand-name">Protegete</span>
         </div>
         <div className="sidepanel__topbar-actions">
           <TextSizeToggle />
