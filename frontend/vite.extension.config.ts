@@ -20,6 +20,12 @@ function abs(relative: string): string {
 export default defineConfig({
   root: abs('./src/extension'),
   publicDir: false,
+  // Extension pages have no dev server / proxy available, so the backend
+  // origin must be baked in as an absolute URL at build time regardless of
+  // any ambient VITE_API_BASE env value. See src/core/api.ts.
+  define: {
+    'import.meta.env.VITE_API_BASE': JSON.stringify('http://localhost:8000'),
+  },
   plugins: [
     react(),
     viteStaticCopy({

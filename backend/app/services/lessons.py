@@ -210,6 +210,24 @@ _LESSONS: tuple[Lesson, ...] = (
         example='"Iniciá sesión" en un sitio "http://" (sin candado) que en realidad es de otra empresa.',
         what_to_do="No ingreses tu contraseña ahí. Cerrá la página y entrá desde la app oficial o escribiendo vos la dirección.",
     ),
+    Lesson(
+        id="fake_qr",
+        icon="🔲",
+        title="Códigos QR falsos",
+        how_to_spot=(
+            "Un QR puede ser un sticker pegado sobre el original o venir en un mail o mensaje. "
+            "No ves el link hasta escanearlo, así que no sabés a dónde te lleva."
+        ),
+        example=(
+            "Un sticker con un QR trucho pegado sobre el QR real de un parquímetro, un cartel de "
+            "Mercado Pago en un local con el código cambiado, o un mail que dice 'escaneá para "
+            "cobrar tu reintegro de ANSES'."
+        ),
+        what_to_do=(
+            "Fijate si tapa otro código, desconfiá de QRs sueltos en la calle o en mails, y "
+            "revisá la dirección antes de tocar algo o cargar datos."
+        ),
+    ),
 )
 
 _LESSONS_BY_ID: dict[str, Lesson] = {lesson.id: lesson for lesson in _LESSONS}
