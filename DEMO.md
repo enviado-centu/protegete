@@ -1,7 +1,7 @@
 # Guía de demo — Protegete
 
 Guía rápida para levantar el proyecto y mostrarlo en vivo: backend, PWA y
-extensión de Chrome, con 7 casos de prueba y sus respuestas reales.
+extensión de Chrome (y la PWA desde el celular), con 8 casos de prueba y sus respuestas reales.
 
 ## Requisitos
 
@@ -62,6 +62,26 @@ El ícono de la extensión aparece en la barra de herramientas; un click abre
 el panel lateral con el veredicto de la pestaña activa, las métricas y el
 chat.
 
+### 4. Desde el celular (PWA por HTTPS)
+
+La cámara (para escanear QR) y la instalación de la PWA exigen HTTPS, así
+que la PWA se expone con un túnel gratuito de Cloudflare (sin cuenta).
+Con el backend ya levantado en el puerto 8000:
+
+```powershell
+cd frontend
+powershell -ExecutionPolicy Bypass -File scripts\phone.ps1
+```
+
+El script hace `npm run build`, levanta `vite preview` en el 4173 y abre
+el túnel. En la terminal aparece una URL `https://*.trycloudflare.com`:
+abrirla en el celular (o generar un QR de esa URL para el jurado). La PWA
+llama al backend por la ruta relativa `/api`, que `vite preview` reenvía
+al puerto 8000, así que no hace falta exponer el backend aparte. Ctrl+C
+corta el túnel y el servidor.
+
+La extensión no cambia: sigue llamando a `http://localhost:8000`.
+
 ## Checklist de 1 minuto antes de la demo
 
 1. **Backend arriba:**
@@ -76,7 +96,7 @@ chat.
    está activo). Si falla, la demo sigue: el chat solo pierde la respuesta
    conversacional adicional (capa B), no el veredicto principal (capa A).
 
-## 7 casos de demo
+## 8 casos de demo
 
 Todos los casos fueron ejecutados contra el backend real (no simulados)
 el 2026-09-24.
@@ -287,6 +307,31 @@ localhost" se expande a las 4 razones + lección, y debajo aparece la
 sección plegable "🔍 Lo que encontramos en la página" con el mismo detalle
 -- separada de la tarjeta principal para distinguir "lo que dice la URL"
 de "lo que vimos al abrir la página".
+
+### Caso 8 — Código QR falso (quishing)
+
+**Input:** los 3 QR de `demo/qr/qr-demo.html` (imprimible, solo dice
+"QR 1/2/3", sin revelar cuál es trucho):
+
+| QR | Contenido | Veredicto esperado |
+|----|-----------|--------------------|
+| QR 1 | `http://bna-homebanking-verificar.xyz/login` | ⛔ Peligroso (igual que el caso 1) |
+| QR 2 | `https://www.mercadopago.com.ar` | ✅ Seguro (igual que el caso 4) |
+| QR 3 | `https://futbollibrefullhd.org` | ⛔ Peligroso (igual que el caso 6) |
+
+En vivo, desde el celular: tocar el botón de QR del composer, apuntar la
+cámara a la hoja. El QR se decodifica **en el dispositivo** (jsQR) y el
+contenido pasa por el mismo análisis que una URL pegada a mano. Si el
+veredicto no es seguro, se suma una advertencia específica de que el link
+vino de un QR (los estafadores pegan QR falsos sobre carteles, mesas o
+facturas) y la lección "Códigos QR falsos" (`fake_qr`).
+
+Sin cámara (en la notebook o en la extensión): subir `demo/qr/qr-1.png`
+con el botón 🖼️. Antes del OCR se intenta leer un QR; si hay uno, se usa
+ese camino.
+
+QR que no son links (Wi-Fi, teléfono, contacto) se describen en el chat
+sin enviarse al backend.
 
 ### Consentimiento y privacidad (flujo completo, Feature B)
 
@@ -509,3 +554,14 @@ Safe Browsing v4 (la misma base que usa Chrome/Edge para las páginas rojas
 de advertencia) si se configura una API key -- sin key, simplemente no se
 hace esa llamada y el veredicto sigue funcionando igual con la regla
 offline. Nunca dependemos de un solo proveedor externo para decidir.
+
+**¿Por qué los QR?** El "quishing" (phishing por QR) crece porque el QR
+esconde la URL: nadie puede leerla a simple vista antes de abrirla. En
+Argentina se usan QR para pagar en todos lados, y hay casos de QR falsos
+pegados encima de los reales. Protegete lee el QR en el celular, sin
+abrir el link, y muestra el veredicto antes de que el usuario entre.
+
+**¿La cámara manda imágenes a algún lado?** No. El QR se decodifica en el
+propio navegador (jsQR, empaquetado en la app, sin CDN); solo el texto
+decodificado va al backend, igual que si el usuario lo hubiera pegado. La
+cámara se apaga apenas se lee el código o se cierra el diálogo.
