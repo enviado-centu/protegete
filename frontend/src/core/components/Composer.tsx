@@ -1,10 +1,13 @@
 import {
   useLayoutEffect,
   useRef,
+  useState,
   type ChangeEvent,
   type ClipboardEvent,
   type KeyboardEvent,
 } from 'react'
+import { isDictationSupported, startDictation } from '../dictation'
+import { stop as stopReadAloud } from '../speech'
 
 export interface ComposerProps {
   value: string
@@ -18,7 +21,17 @@ export interface ComposerProps {
   /** Opens the live camera QR scanner dialog. Required when `enableQrScan`
    * is true. */
   onOpenScanner?: () => void
+  /** Shows the 🎤 dictation button (PWA only — the extension side panel
+   * can't reliably get mic permission in an MV3 side panel, see
+   * voice-dictation task). Also hidden whenever the browser doesn't support
+   * the Web Speech recognition API (feature detection via
+   * `isDictationSupported`). */
+  enableDictation?: boolean
 }
+
+const DICTATING_LABEL = 'Escuchando…'
+const DICTATION_TOOLTIP =
+  'El dictado usa el reconocimiento de voz del navegador (en Chrome, el audio lo procesa Google).'
 
 const MAX_ROWS = 4
 const FALLBACK_LINE_HEIGHT = 24
@@ -35,9 +48,13 @@ export function Composer({
   disabled,
   enableQrScan,
   onOpenScanner,
+  enableDictation,
 }: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const stopDictationRef = useRef<(() => void) | null>(null)
+  const [listening, setListening] = useState(false)
+  const [dictationError, setDictationError] = useState<string | null>(null)
 
   // Auto-grow: reset height then measure the natural content height, capped
   // at MAX_ROWS lines (beyond that the textarea scrolls internally). Kept
@@ -98,65 +115,123 @@ export function Composer({
     if (file) onImage(file)
   }
 
+  /** Toggles dictation. Starting it stops any ongoing read-aloud (spec: the
+   * app shouldn't talk over the user) and captures the composer's current
+   * text once, so every recognized result (interim or final) replaces the
+   * dictated tail while keeping whatever was already typed. Clicking again
+   * while listening stops the session directly — it doesn't wait for the
+   * recognizer's own onEnd, since a caller-initiated stop should feel
+   * instant. */
+  function handleDictationClick() {
+    if (listening) {
+      stopDictationRef.current?.()
+      stopDictationRef.current = null
+      setListening(false)
+      return
+    }
+
+    setDictationError(null)
+    stopReadAloud()
+    const baseText = value
+
+    stopDictationRef.current = startDictation({
+      onText: (text, isFinal) => {
+        onChange(baseText.trim() ? `${baseText} ${text}` : text)
+        if (isFinal) setListening(false)
+      },
+      onEnd: () => setListening(false),
+      onError: (message) => {
+        setDictationError(message)
+        setListening(false)
+      },
+    })
+    setListening(true)
+  }
+
   return (
-    <form
-      className="composer"
-      onSubmit={(event) => {
-        event.preventDefault()
-        submit()
-      }}
-    >
-      <label className="visually-hidden" htmlFor="composer-input">
-        Escribí tu mensaje, pegá un link o describí lo que recibiste
-      </label>
-      <textarea
-        id="composer-input"
-        ref={textareaRef}
-        aria-label="Escribí tu mensaje"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        onKeyDown={handleKeyDown}
-        onPaste={handlePaste}
-        placeholder="Escribí o pegá acá…"
-        rows={1}
-        disabled={disabled}
-      />
-      <button
-        type="button"
-        className="composer__icon-btn"
-        aria-label="Adjuntar captura"
-        onClick={() => fileInputRef.current?.click()}
-        disabled={disabled}
+    <>
+      {listening && (
+        <p className="composer__dictation-status" role="status">
+          {DICTATING_LABEL}
+        </p>
+      )}
+      {dictationError && (
+        <p className="composer__dictation-error" role="alert">
+          {dictationError}
+        </p>
+      )}
+      <form
+        className="composer"
+        onSubmit={(event) => {
+          event.preventDefault()
+          submit()
+        }}
       >
-        <span aria-hidden="true">🖼️</span>
-      </button>
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="image/*"
-        aria-label="Imagen a analizar"
-        className="visually-hidden"
-        onChange={handleFileChange}
-      />
-      {enableQrScan && (
+        <label className="visually-hidden" htmlFor="composer-input">
+          Escribí tu mensaje, pegá un link o describí lo que recibiste
+        </label>
+        <textarea
+          id="composer-input"
+          ref={textareaRef}
+          aria-label="Escribí tu mensaje"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          placeholder="Escribí o pegá acá…"
+          rows={1}
+          disabled={disabled}
+        />
         <button
           type="button"
           className="composer__icon-btn"
-          aria-label="Escanear código QR"
-          onClick={onOpenScanner}
+          aria-label="Adjuntar captura"
+          onClick={() => fileInputRef.current?.click()}
           disabled={disabled}
         >
-          <span aria-hidden="true">🔳</span>
+          <span aria-hidden="true">🖼️</span>
         </button>
-      )}
-      <button
-        type="submit"
-        className="composer__send-btn"
-        aria-label="Enviar"
-        disabled={disabled || !value.trim()}
-      >
-        Enviar
-      </button>
-    </form>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          aria-label="Imagen a analizar"
+          className="visually-hidden"
+          onChange={handleFileChange}
+        />
+        {enableQrScan && (
+          <button
+            type="button"
+            className="composer__icon-btn"
+            aria-label="Escanear código QR"
+            onClick={onOpenScanner}
+            disabled={disabled}
+          >
+            <span aria-hidden="true">🔳</span>
+          </button>
+        )}
+        {enableDictation && isDictationSupported() && (
+          <button
+            type="button"
+            className={`composer__icon-btn${listening ? ' is-listening' : ''}`}
+            aria-label="Dictar mensaje"
+            aria-pressed={listening}
+            title={DICTATION_TOOLTIP}
+            onClick={handleDictationClick}
+            disabled={disabled}
+          >
+            <span aria-hidden="true">🎤</span>
+          </button>
+        )}
+        <button
+          type="submit"
+          className="composer__send-btn"
+          aria-label="Enviar"
+          disabled={disabled || !value.trim()}
+        >
+          Enviar
+        </button>
+      </form>
+    </>
   )
 }

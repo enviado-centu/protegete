@@ -47,6 +47,10 @@ export interface ChatProps {
    * PWA only — the extension side panel can't reliably use the camera, so
    * it leaves this unset and only gets QR-from-image (see `handleImage`). */
   enableQrScan?: boolean
+  /** Shows the composer's 🎤 dictation button. PWA only — the extension
+   * side panel can't reliably get mic permission in an MV3 side panel, so
+   * it leaves this unset (see voice-dictation task). */
+  enableDictation?: boolean
 }
 
 const MAX_HISTORY_TURNS = 6
@@ -175,6 +179,7 @@ export function Chat({
   initialContext = null,
   contextKey,
   enableQrScan = false,
+  enableDictation = false,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [draft, setDraft] = useState('')
@@ -469,6 +474,7 @@ export function Chat({
         disabled={busy}
         enableQrScan={enableQrScan}
         onOpenScanner={() => setScannerOpen(true)}
+        enableDictation={enableDictation}
       />
       {scannerOpen && (
         <QrScanner
