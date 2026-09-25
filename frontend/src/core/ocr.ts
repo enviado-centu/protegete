@@ -1,18 +1,27 @@
 // OCR is dynamically imported so tesseract.js (and its wasm/lang assets)
-// never land in the initial bundle. All assets are served locally from
-// /tesseract (see vite.config.ts) — the MV3 extension forbids remote code.
+// never land in the initial bundle. All assets are served locally — from
+// /tesseract in the PWA build (see vite.config.ts) or from the extension's
+// own bundled files (see vite.extension.config.ts) — the MV3 extension
+// forbids remote code, so both builds ship the assets themselves.
 
-const WORKER_PATH = '/tesseract/worker.min.js'
-const CORE_PATH = '/tesseract/tesseract-core-lstm.wasm.js'
-const LANG_PATH = '/tesseract/'
+function hasChromeRuntime(): boolean {
+  return (
+    typeof chrome !== 'undefined' &&
+    typeof chrome.runtime?.getURL === 'function'
+  )
+}
+
+function assetPath(relative: string): string {
+  return hasChromeRuntime() ? chrome.runtime.getURL(`tesseract/${relative}`) : `/tesseract/${relative}`
+}
 
 /** Extracts Spanish text from an image (screenshot of a scam message). */
 export async function extractText(file: Blob): Promise<string> {
   const { createWorker } = await import('tesseract.js')
   const worker = await createWorker('spa', 1, {
-    workerPath: WORKER_PATH,
-    corePath: CORE_PATH,
-    langPath: LANG_PATH,
+    workerPath: assetPath('worker.min.js'),
+    corePath: assetPath('tesseract-core-lstm.wasm.js'),
+    langPath: assetPath(''),
     gzip: true,
   })
   try {

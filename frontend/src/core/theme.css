@@ -359,6 +359,49 @@ button:disabled {
   font-size: 0.95rem;
 }
 
+.metrics-tiles__grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+}
+
+.metrics-tile {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  text-align: center;
+}
+
+.metrics-tile__number {
+  margin: 0;
+  font-size: 2.25rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--color-accent);
+}
+
+.metrics-tile__caption {
+  margin: var(--space-1) 0 0;
+  font-weight: 600;
+}
+
+.metrics-tile__subtitle {
+  margin: 0.125rem 0 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.metrics-tile__danger {
+  margin: var(--space-1) 0 0;
+  font-size: 0.9rem;
+  color: var(--color-danger-text);
+}
+
+.sidepanel__section-title {
+  margin: 0 0 var(--space-1);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

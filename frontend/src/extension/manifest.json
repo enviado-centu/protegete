@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Alerta Estafa",
+  "short_name": "Alerta Estafa",
+  "description": "Te avisa cuando el sitio que estás visitando parece una estafa y te enseña a reconocerlas.",
+  "version": "0.1.0",
+  "permissions": ["tabs", "storage", "sidePanel"],
+  "host_permissions": ["http://localhost:8000/*"],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+  "action": {
+    "default_title": "Alerta Estafa",
+    "default_icon": {
+      "192": "icons/icon-192.png",
+      "512": "icons/icon-512.png"
+    }
+  },
+  "icons": {
+    "192": "icons/icon-192.png",
+    "512": "icons/icon-512.png"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  }
+}
