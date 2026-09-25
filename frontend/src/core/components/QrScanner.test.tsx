@@ -174,7 +174,7 @@ describe('QrScanner', () => {
     expect(stopTrack).toHaveBeenCalled()
   })
 
-  test('picking a fallback photo hands the raw file to onFallbackImage without deciding for the caller', async () => {
+  test('picking a fallback photo hands an in-memory copy to onFallbackImage without deciding for the caller', async () => {
     Object.defineProperty(navigator, 'mediaDevices', {
       value: undefined,
       configurable: true,
@@ -187,6 +187,12 @@ describe('QrScanner', () => {
     const input = document.querySelector('input[type=file]') as HTMLInputElement
     fireEvent.change(input, { target: { files: [file] } })
 
-    expect(props.onFallbackImage).toHaveBeenCalledWith(file)
+    // Android file handles go stale once the input is reset, so the scanner
+    // hands over a copy rather than the picked File itself.
+    await vi.waitFor(() => expect(props.onFallbackImage).toHaveBeenCalledTimes(1))
+    const handed = vi.mocked(props.onFallbackImage).mock.calls[0][0]
+    expect(handed).not.toBe(file)
+    expect(handed.type).toBe('image/png')
+    expect(handed.size).toBe(file.size)
   })
 })

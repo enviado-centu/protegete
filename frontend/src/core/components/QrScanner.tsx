@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ChangeEvent, type KeyboardEvent } from 'react'
+import { copyToMemory } from '../blob'
 import { startQrScanner } from '../qr'
 
 /**
@@ -161,10 +162,13 @@ export function QrScanner({ onResult, onClose, onFallbackImage }: QrScannerProps
     }
   }
 
-  function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (file) onFallbackImage(file)
+  async function handleFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.target
+    const file = input.files?.[0]
+    if (!file) return
+    const image = await copyToMemory(file)
+    input.value = ''
+    onFallbackImage(image)
   }
 
   const errorMessage =
