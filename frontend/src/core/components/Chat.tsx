@@ -38,6 +38,7 @@ const UNREACHABLE_MESSAGE =
   'No pude conectarme al analizador. Probá de nuevo en un momento.'
 const INVALID_MESSAGE = 'Ese mensaje no lo pude leer, ¿podés reformularlo?'
 const EMPTY_IMAGE_MESSAGE = 'No encontré texto en la imagen.'
+const OCR_FAILED_MESSAGE = 'No pude leer la imagen. Probá con otra captura o pegá el texto.'
 
 /**
  * The one shared teaching chat: classifies input, calls layer A
@@ -140,14 +141,18 @@ export function Chat({ initialMessages = [] }: ChatProps) {
     append({ id: newId(), role: 'user', text: '🖼️ Imagen enviada' })
     setBusy(true)
     try {
-      const text = await extractText(file)
+      let text: string
+      try {
+        text = await extractText(file)
+      } catch {
+        append({ id: newId(), role: 'system', text: OCR_FAILED_MESSAGE })
+        return
+      }
       if (!text) {
         append({ id: newId(), role: 'system', text: EMPTY_IMAGE_MESSAGE })
         return
       }
       await runAnalysis(text)
-    } catch {
-      append({ id: newId(), role: 'system', text: EMPTY_IMAGE_MESSAGE })
     } finally {
       setBusy(false)
     }

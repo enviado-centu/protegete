@@ -23,6 +23,9 @@ export async function extractText(file: Blob): Promise<string> {
     corePath: assetPath('tesseract-core-lstm.wasm.js'),
     langPath: assetPath(''),
     gzip: true,
+    // Inside the MV3 extension a blob: worker cannot importScripts() a
+    // chrome-extension:// URL, so the worker must be created from its file.
+    workerBlobURL: !hasChromeRuntime(),
   })
   try {
     const {

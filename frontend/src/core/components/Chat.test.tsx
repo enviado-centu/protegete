@@ -3,8 +3,10 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Chat } from './Chat'
 import * as api from '../api'
+import * as ocr from '../ocr'
 
 vi.mock('../api')
+vi.mock('../ocr')
 
 function typeAndSend(input: HTMLElement, text: string) {
   const user = userEvent.setup()
@@ -98,5 +100,14 @@ describe('Chat', () => {
     expect(
       screen.getByRole('button', { name: '¿Cómo me doy cuenta de una estafa?' }),
     ).toBeInTheDocument()
+  })
+
+  test('an OCR failure is reported as a reading error, not as "no text"', async () => {
+    vi.mocked(ocr.extractText).mockRejectedValue(new Error('worker failed'))
+    const { container } = render(<Chat />)
+    const input = container.querySelector('input[type=file]') as HTMLInputElement
+    await userEvent.upload(input, new File(['x'], 'shot.png', { type: 'image/png' }))
+    expect(await screen.findByText('No pude leer la imagen. Probá con otra captura o pegá el texto.')).toBeInTheDocument()
+    expect(screen.queryByText('No encontré texto en la imagen.')).not.toBeInTheDocument()
   })
 })
