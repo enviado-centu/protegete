@@ -82,6 +82,21 @@ corta el túnel y el servidor.
 
 La extensión no cambia: sigue llamando a `http://localhost:8000`.
 
+**Para que el jurado la abra en su celular:** con el túnel ya corriendo,
+generar una página con un QR "Entrá a Protegete" que apunte a la URL
+`https://*.trycloudflare.com` del momento y mostrarla en pantalla. El
+jurado la escanea con la cámara normal del celu (sin instalar nada; si
+quiere, "Agregar a pantalla de inicio"). Los QR de prueba
+(`demo/qr/qr-demo.html`) tienen que estar en **otra** pantalla o impresos:
+un celu no puede escanear un QR de su propia pantalla.
+
+- La URL cambia cada vez que se reinicia el túnel: levantarlo justo antes
+  de presentar y regenerar el QR "Entrá acá" con esa URL.
+- Todo pasa por la notebook: desactivar la suspensión y dejarla
+  enchufada.
+- Plan B si el túnel gratuito falla: hacer la demo desde un celular
+  propio o desde http://localhost:4173 en la notebook.
+
 ## Checklist de 1 minuto antes de la demo
 
 1. **Backend arriba:**
@@ -356,6 +371,24 @@ o "me hackearon" (sin importar tildes ni mayúsculas).
 veredicto ⛔ Peligroso aparece el botón *"¿Ya pusiste tus datos? Qué hacer
 ahora"*; al tocarlo, se muestra la misma guía. Funciona igual en la PWA y
 en el panel de la extensión.
+
+### Dictado por voz y conversación de seguimiento
+
+**Dictado 🎤 (solo PWA):** tocar el micrófono del composer, hablar, y el
+texto aparece en el cuadro **sin enviarse solo**: la persona lo revisa y
+lo manda. Si la app estaba leyendo algo en voz alta, se calla al empezar a
+dictar. El botón solo aparece en navegadores que soportan reconocimiento
+de voz (Chrome/Edge); en el panel de la extensión no se muestra.
+
+**Salvedad honesta:** el dictado usa el reconocimiento de voz del
+navegador; en Chrome, el audio lo procesa Google. Lo dice el propio
+botón (tooltip). Es opcional: escribir sigue funcionando igual.
+
+**Seguir la conversación:** después de un veredicto (por ejemplo, el QR 1),
+escribir o dictar *"decime más sobre eso"* o *"y ahora qué hago"*. El chat
+responde con el contexto del link anterior en lugar de analizar ese
+mensaje como uno nuevo. Si en cambio se pega un mensaje con señales de
+estafa (un SMS trucho), se analiza y muestra su propio veredicto.
 
 ### Consentimiento y privacidad (flujo completo, Feature B)
 
