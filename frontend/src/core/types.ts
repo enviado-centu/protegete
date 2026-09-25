@@ -11,6 +11,8 @@ export type Category =
   | 'insecure'
   | 'blacklisted'
   | 'social_engineering'
+  | 'risky_site'
+  | 'malicious'
   | 'none'
 
 export interface MLInfo {
@@ -29,6 +31,7 @@ export interface Details {
   blacklist: boolean
   whitelist: boolean
   ml_probability: number
+  reputation: 'flagged' | 'clean' | 'unavailable'
 }
 
 /** Response of POST /api/analyze */

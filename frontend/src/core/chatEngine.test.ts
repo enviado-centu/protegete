@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { classifyInput, matchLessons, buildReplyA } from './chatEngine'
+import { classifyInput, matchLessons, buildReplyA, CATEGORY_TO_LESSON_ID } from './chatEngine'
 import type { Lesson, TextVerdict, UrlVerdict } from './types'
 
 test('url', () => expect(classifyInput('mercad0pago.com.ar')).toBe('url'))
@@ -75,7 +75,7 @@ describe('buildReplyA', () => {
     tip: 'No ingreses tus datos ahí.',
     ml: { probability: 0.9, threshold: 0.5, flagged: true, top_features: [] },
     rules: [{ id: 'fake_domain', weight: 0.5 }],
-    details: { blacklist: false, whitelist: false, ml_probability: 0.9 },
+    details: { blacklist: false, whitelist: false, ml_probability: 0.9, reputation: 'unavailable' },
   }
 
   const textVerdict: TextVerdict = {
@@ -137,5 +137,40 @@ describe('buildReplyA', () => {
     ]
     const reply = buildReplyA(baseUrlVerdict, catalog)
     expect(reply.lessons.map((l) => l.id)).toContain('fake_domain')
+  })
+
+  test('maps the pirate-streaming and reputation categories to their lesson ids', () => {
+    expect(CATEGORY_TO_LESSON_ID.risky_site).toBe('risky_streaming')
+    expect(CATEGORY_TO_LESSON_ID.malicious).toBe('malicious_site')
+  })
+
+  test('risky_site url verdict resolves the risky_streaming lesson from the catalog', () => {
+    const catalog: Lesson[] = [
+      {
+        id: 'risky_streaming',
+        icon: '⚽',
+        title: 'Sitios de fútbol o series gratis',
+        how_to_spot: 'Botones de Ver falsos y publicidad engañosa',
+        example: 'futbollibrefullhd.org',
+        what_to_do: 'No hagas clic en los botones de Ver',
+      },
+    ]
+    const reply = buildReplyA({ ...baseUrlVerdict, category: 'risky_site' }, catalog)
+    expect(reply.lessons.map((l) => l.id)).toContain('risky_streaming')
+  })
+
+  test('malicious url verdict resolves the malicious_site lesson from the catalog', () => {
+    const catalog: Lesson[] = [
+      {
+        id: 'malicious_site',
+        icon: '☠️',
+        title: 'Sitios marcados como peligrosos',
+        how_to_spot: 'Google ya lo identificó como fuente de virus',
+        example: 'Chrome muestra una advertencia roja',
+        what_to_do: 'No ingreses ni sigas navegando ahí',
+      },
+    ]
+    const reply = buildReplyA({ ...baseUrlVerdict, category: 'malicious' }, catalog)
+    expect(reply.lessons.map((l) => l.id)).toContain('malicious_site')
   })
 })

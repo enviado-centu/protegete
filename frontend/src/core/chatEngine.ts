@@ -103,6 +103,8 @@ export const CATEGORY_TO_LESSON_ID: Partial<Record<Category, string>> = {
   hidden_destination: 'hidden_link',
   insecure: 'insecure_site',
   blacklisted: 'fake_domain',
+  risky_site: 'risky_streaming',
+  malicious: 'malicious_site',
 }
 
 const VERDICT_WORD: Record<Level, string> = {

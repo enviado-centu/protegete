@@ -56,7 +56,7 @@ describe('Chat', () => {
       tip: 'No ingreses tus datos ahí.',
       ml: { probability: 0.9, threshold: 0.5, flagged: true, top_features: [] },
       rules: [{ id: 'fake_domain', weight: 0.5 }],
-      details: { blacklist: false, whitelist: false, ml_probability: 0.9 },
+      details: { blacklist: false, whitelist: false, ml_probability: 0.9, reputation: 'unavailable' },
     })
     render(<Chat />)
     const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
