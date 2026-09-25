@@ -82,12 +82,39 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated) {
   })
 }
 
-if (typeof chrome !== 'undefined' && chrome.sidePanel?.setPanelBehavior) {
-  chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {
-    // Older Chrome without this API: the side panel still opens via the
-    // default_path association; nothing else to do.
-  })
+/**
+ * Wires the toolbar icon to open the UI. Chrome (and modern Edge/Brave)
+ * support `chrome.sidePanel`, so the icon opens the real side panel. Older
+ * Chromium builds and Opera (no sidePanel API as of this writing) fall back
+ * to opening the exact same page as the toolbar-icon popup via
+ * `chrome.action.setPopup` — same UI, sized for a popup window (see
+ * `sidepanel.tsx`'s `isPopupFallback` / theme.css's `.popup` rules).
+ * Exported so tests can call it directly against a fake `chrome` global.
+ */
+export async function wireToolbarIcon(): Promise<void> {
+  if (typeof chrome === 'undefined') return
+
+  if (chrome.sidePanel?.setPanelBehavior) {
+    try {
+      await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
+    } catch {
+      // Nothing else to do: the side panel still opens via the
+      // default_path association.
+    }
+    return
+  }
+
+  if (chrome.action?.setPopup) {
+    try {
+      await chrome.action.setPopup({ popup: 'sidepanel.html' })
+    } catch {
+      // No popup fallback available either: the toolbar icon click is a
+      // no-op, which is still safer than throwing from the service worker.
+    }
+  }
 }
+
+void wireToolbarIcon()
 
 // Exposed on the service worker's global scope (not importable from outside
 // the module graph) so E2E tooling can drive it directly via

@@ -97,7 +97,7 @@ export function matchLessons(
 }
 
 /** Maps a URL verdict `category` to the lesson id it teaches (Task 1 contract). */
-const CATEGORY_TO_LESSON_ID: Partial<Record<Category, string>> = {
+export const CATEGORY_TO_LESSON_ID: Partial<Record<Category, string>> = {
   impersonation: 'brand_impersonation',
   suspicious_domain: 'fake_domain',
   hidden_destination: 'hidden_link',

@@ -1,4 +1,10 @@
-import { useRef, type ChangeEvent, type ClipboardEvent, type KeyboardEvent } from 'react'
+import {
+  useLayoutEffect,
+  useRef,
+  type ChangeEvent,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from 'react'
 
 export interface ComposerProps {
   value: string
@@ -8,10 +14,45 @@ export interface ComposerProps {
   disabled?: boolean
 }
 
+const MAX_ROWS = 4
+const FALLBACK_LINE_HEIGHT = 24
+
 /** Text/URL input plus image paste and picker (spec: input accepts text/URL,
- * paste of images, and an image picker). */
+ * paste of images, and an image picker). The textarea auto-grows from one
+ * line up to `MAX_ROWS` and never shows a manual resize handle, so it works
+ * cleanly from 300px-wide panels up (no drag handle, no layout jump). */
 export function Composer({ value, onChange, onSend, onImage, disabled }: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Auto-grow: reset height then measure the natural content height, capped
+  // at MAX_ROWS lines (beyond that the textarea scrolls internally). Kept
+  // overflow-y: hidden by default (CSS) and only switched to auto once
+  // content genuinely exceeds the cap — Chromium's empty-textarea
+  // scrollHeight reflects its *wrapped placeholder* text, not the actual
+  // (empty) content, so leaving overflow-y: auto on unconditionally would
+  // register the box as scrollable — and can even paint a scrollbar — on
+  // an empty single-line composer.
+  useLayoutEffect(() => {
+    const node = textareaRef.current
+    if (!node) return
+    if (!value) {
+      node.style.height = ''
+      node.style.overflowY = 'hidden'
+      return
+    }
+    node.style.height = 'auto'
+    const computed = window.getComputedStyle(node)
+    const lineHeight = Number.parseFloat(computed.lineHeight) || FALLBACK_LINE_HEIGHT
+    const paddingY =
+      (Number.parseFloat(computed.paddingTop) || 0) + (Number.parseFloat(computed.paddingBottom) || 0)
+    const borderY =
+      (Number.parseFloat(computed.borderTopWidth) || 0) +
+      (Number.parseFloat(computed.borderBottomWidth) || 0)
+    const maxHeight = lineHeight * MAX_ROWS + paddingY + borderY
+    node.style.height = `${Math.min(node.scrollHeight, maxHeight)}px`
+    node.style.overflowY = node.scrollHeight > maxHeight ? 'auto' : 'hidden'
+  }, [value])
 
   function submit() {
     if (disabled || !value.trim()) return
@@ -56,18 +97,20 @@ export function Composer({ value, onChange, onSend, onImage, disabled }: Compose
       </label>
       <textarea
         id="composer-input"
+        ref={textareaRef}
         aria-label="Escribí tu mensaje"
         value={value}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
         placeholder="Pegá un link, un mensaje o una captura..."
-        rows={2}
+        rows={1}
         disabled={disabled}
       />
       <button
         type="button"
-        aria-label="Adjuntar una imagen"
+        className="composer__icon-btn"
+        aria-label="Adjuntar captura"
         onClick={() => fileInputRef.current?.click()}
         disabled={disabled}
       >
@@ -81,7 +124,12 @@ export function Composer({ value, onChange, onSend, onImage, disabled }: Compose
         className="visually-hidden"
         onChange={handleFileChange}
       />
-      <button type="submit" aria-label="Enviar" disabled={disabled || !value.trim()}>
+      <button
+        type="submit"
+        className="composer__send-btn"
+        aria-label="Enviar"
+        disabled={disabled || !value.trim()}
+      >
         Enviar
       </button>
     </form>

@@ -17,6 +17,17 @@ import { Composer } from './Composer'
 
 export interface ChatProps {
   initialMessages?: ChatMessage[]
+  /** Notified whenever the conversation goes from empty to non-empty (or
+   * back). Lets a host layout (e.g. the extension side panel) collapse a
+   * top area once the chat is in use. */
+  onHasMessagesChange?: (hasMessages: boolean) => void
+}
+
+type BusyPhase = 'ocr' | 'analyzing' | null
+
+const STATUS_TEXT: Record<Exclude<BusyPhase, null>, string> = {
+  ocr: 'Leyendo la imagen…',
+  analyzing: 'Analizando…',
 }
 
 const EXAMPLES = [
@@ -45,21 +56,30 @@ const OCR_FAILED_MESSAGE = 'No pude leer la imagen. Probá con otra captura o pe
  * (deterministic backend analysis) and, in parallel, layer B (`/api/chat`,
  * additive only). Reused by both the PWA shell and the extension side panel.
  */
-export function Chat({ initialMessages = [] }: ChatProps) {
+export function Chat({ initialMessages = [], onHasMessagesChange }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [draft, setDraft] = useState('')
   const [lessonsCatalog, setLessonsCatalog] = useState<Lesson[]>([])
   const [lastContext, setLastContext] = useState<ChatContext | null>(null)
   const [busy, setBusy] = useState(false)
+  const [busyPhase, setBusyPhase] = useState<BusyPhase>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Auto-scroll to the newest message so the composer never covers the
-  // latest reply (spec: message list scrolls, composer stays anchored).
+  // Auto-scroll to the newest message (or status bubble) so the composer
+  // never covers the latest reply (spec: message list scrolls, composer
+  // stays anchored).
   useEffect(() => {
     const node = scrollRef.current
     if (!node) return
     node.scrollTop = node.scrollHeight
-  }, [messages])
+  }, [messages, busyPhase])
+
+  useEffect(() => {
+    onHasMessagesChange?.(messages.length > 0)
+    // Only the transition matters to the host layout; re-running on every
+    // render of an unstable callback is harmless (cheap boolean update).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length])
 
   useEffect(() => {
     let cancelled = false
@@ -81,6 +101,7 @@ export function Chat({ initialMessages = [] }: ChatProps) {
   }
 
   async function runAnalysis(text: string) {
+    setBusyPhase('analyzing')
     const kind = classifyInput(text)
     let context: ChatContext | null = lastContext
 
@@ -133,6 +154,7 @@ export function Chat({ initialMessages = [] }: ChatProps) {
       await runAnalysis(trimmed)
     } finally {
       setBusy(false)
+      setBusyPhase(null)
     }
   }
 
@@ -140,6 +162,7 @@ export function Chat({ initialMessages = [] }: ChatProps) {
     if (busy) return
     append({ id: newId(), role: 'user', text: '🖼️ Imagen enviada' })
     setBusy(true)
+    setBusyPhase('ocr')
     try {
       let text: string
       try {
@@ -155,6 +178,7 @@ export function Chat({ initialMessages = [] }: ChatProps) {
       await runAnalysis(text)
     } finally {
       setBusy(false)
+      setBusyPhase(null)
     }
   }
 
@@ -162,11 +186,16 @@ export function Chat({ initialMessages = [] }: ChatProps) {
 
   return (
     <div className="chat">
-      <div className="chat__scroll" ref={scrollRef}>
+      <div className="chat__scroll thin-scroll" ref={scrollRef}>
         <div className="chat__transcript" role="log" aria-live="polite" aria-label="Conversación">
           {messages.map((message) => (
             <MessageBubble key={message.id} message={message} onChipSelect={handleSend} />
           ))}
+          {busyPhase && (
+            <p className="bubble bubble--system chat__status" role="status" aria-live="polite">
+              {STATUS_TEXT[busyPhase]}
+            </p>
+          )}
         </div>
         {showEmptyState && (
           <div className="chat__empty">

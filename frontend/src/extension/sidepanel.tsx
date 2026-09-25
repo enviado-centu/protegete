@@ -1,43 +1,36 @@
-import { StrictMode, useEffect, useState } from 'react'
+import { StrictMode, useCallback, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Chat } from '../core/components/Chat'
-import { VerdictCard } from '../core/components/VerdictCard'
+import { ShieldIcon } from '../core/components/ShieldIcon'
+import { TextSizeToggle } from '../core/components/TextSizeToggle'
+import { getLessons } from '../core/api'
+import type { Lesson } from '../core/types'
+import { StatusPill } from './StatusPill'
 import { MetricsTiles } from './MetricsTiles'
 import { getCachedTabVerdict, type CachedTabVerdict } from './tabVerdict'
 import { getMetrics, chromeStore, type Metrics } from './metrics'
 import '../core/theme.css'
-
-const VERDICT_WORD: Record<CachedTabVerdict['level'], string> = {
-  safe: 'Parece seguro',
-  caution: 'Cuidado',
-  danger: 'Peligroso',
-}
-
-const VERDICT_ICON: Record<CachedTabVerdict['level'], string> = {
-  safe: '✅',
-  caution: '⚠️',
-  danger: '⛔',
-}
 
 async function activeTabId(): Promise<number | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true })
   return tab?.id ?? null
 }
 
-/** Compact subject line for the current-tab verdict card: just the host,
- * so the card stays readable at side-panel widths (~360-400px). Falls back
- * to the raw string when it isn't a parseable URL. */
-function hostOf(url: string): string {
-  try {
-    return new URL(url).hostname
-  } catch {
-    return url
-  }
-}
+// Browsers without chrome.sidePanel (older Chromium, Opera) open this same
+// page as the toolbar-icon popup instead (see background.ts). A popup has
+// no host chrome giving it a size, so it needs one of its own.
+const isPopupFallback = typeof chrome !== 'undefined' && !chrome.sidePanel
 
 function SidePanel() {
   const [tabVerdict, setTabVerdict] = useState<CachedTabVerdict | null>(null)
   const [metrics, setMetrics] = useState<Metrics | null>(null)
+  const [lessons, setLessons] = useState<Lesson[]>([])
+  const [hasMessages, setHasMessages] = useState(false)
+  const [metricsExpanded, setMetricsExpanded] = useState(true)
+
+  const handleHasMessagesChange = useCallback((value: boolean) => {
+    setHasMessages(value)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -61,42 +54,59 @@ function SidePanel() {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+    getLessons()
+      .then((catalog) => {
+        if (!cancelled) setLessons(catalog)
+      })
+      .catch(() => {
+        // The lesson link in the status pill is a bonus; losing the catalog
+        // keeps the rest of the panel usable.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Once the conversation is in use, the top area collapses behind a
+  // toggle to give the chat room; the status pill and metrics stay one tap
+  // away instead of disappearing.
+  const showTopDetails = !hasMessages || metricsExpanded
+
   return (
-    <div className="app sidepanel">
-      <header className="app__header">
-        <div className="app__brand">
-          <div>
-            <h1>Alerta Estafa</h1>
-            <p className="app__tagline">Panel de esta pestaña</p>
-          </div>
+    <div className={`app sidepanel${isPopupFallback ? ' popup' : ''}`}>
+      <header className="sidepanel__topbar">
+        <div className="sidepanel__brand">
+          <ShieldIcon size={22} />
+          <span className="sidepanel__brand-name">Alerta Estafa</span>
+        </div>
+        <div className="sidepanel__topbar-actions">
+          <TextSizeToggle />
+          {hasMessages && (
+            <button
+              type="button"
+              className="sidepanel__toggle-metrics"
+              aria-expanded={metricsExpanded}
+              onClick={() => setMetricsExpanded((value) => !value)}
+            >
+              {metricsExpanded ? 'Ocultar métricas' : 'Ver métricas'}
+            </button>
+          )}
         </div>
       </header>
 
-      <section aria-label="Veredicto de esta página">
-        {tabVerdict ? (
-          <VerdictCard
-            level={tabVerdict.level}
-            word={VERDICT_WORD[tabVerdict.level]}
-            icon={VERDICT_ICON[tabVerdict.level]}
-            subject={hostOf(tabVerdict.url)}
-            summary={tabVerdict.tip}
-            reasons={tabVerdict.reasons}
-          />
-        ) : (
-          <p className="sidepanel__no-verdict">
-            Todavía no analizamos esta página. Navegá a un sitio para ver su veredicto acá.
-          </p>
-        )}
-      </section>
-
-      <section>
-        <h2 className="sidepanel__section-title">Amenazas que frenamos</h2>
-        {metrics && <MetricsTiles metrics={metrics} />}
-      </section>
+      {showTopDetails && (
+        <div className="sidepanel__top">
+          <section aria-label="Veredicto de esta página">
+            <StatusPill tabVerdict={tabVerdict} lessons={lessons} />
+          </section>
+          {metrics && <MetricsTiles metrics={metrics} />}
+        </div>
+      )}
 
       <section aria-label="Chat de ayuda" className="sidepanel__chat-section">
-        <h2 className="sidepanel__section-title">Preguntanos</h2>
-        <Chat />
+        <Chat onHasMessagesChange={handleHasMessagesChange} />
       </section>
     </div>
   )

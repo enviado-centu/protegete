@@ -15,6 +15,11 @@ function assetPath(relative: string): string {
   return hasChromeRuntime() ? chrome.runtime.getURL(`tesseract/${relative}`) : `/tesseract/${relative}`
 }
 
+/** Safety net: OCR must never leave the chat stuck "busy" forever (e.g. a
+ * corrupt image or a stalled worker). After this many ms, extractText
+ * rejects and the caller (Chat) shows OCR_FAILED_MESSAGE. */
+export const OCR_TIMEOUT_MS = 45_000
+
 /** Extracts Spanish text from an image (screenshot of a scam message). */
 export async function extractText(file: Blob): Promise<string> {
   const { createWorker } = await import('tesseract.js')
@@ -27,12 +32,18 @@ export async function extractText(file: Blob): Promise<string> {
     // chrome-extension:// URL, so the worker must be created from its file.
     workerBlobURL: !hasChromeRuntime(),
   })
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
   try {
+    const recognition = worker.recognize(file)
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timeoutId = setTimeout(() => reject(new Error('OCR_TIMEOUT')), OCR_TIMEOUT_MS)
+    })
     const {
       data: { text },
-    } = await worker.recognize(file)
+    } = await Promise.race([recognition, timeout])
     return text.trim()
   } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId)
     await worker.terminate()
   }
 }

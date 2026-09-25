@@ -16,10 +16,12 @@ function pluralize(count: number, singular: string, plural: string): string {
   return count === 1 ? singular : plural
 }
 
-/** Three big-number tiles (spec §4b): no charts, readable at a glance. */
+/** One compact row of 3 stat chips (spec: metrics readable at a glance, no
+ * charts, no separate section heading duplicating this caption). */
 export function MetricsTiles({ metrics }: MetricsTilesProps) {
   return (
     <section className="metrics-tiles" aria-label="Estadísticas de amenazas detectadas">
+      <p className="metrics-tiles__caption">Amenazas detectadas</p>
       <div className="metrics-tiles__grid">
         {TILES.map(({ key, caption }) => {
           const counts = metrics[key]
@@ -29,19 +31,22 @@ export function MetricsTiles({ metrics }: MetricsTilesProps) {
             'amenazas detectadas',
           )
           const dangerLabel = pluralize(counts.danger, 'peligrosa', 'peligrosas')
+          const describedText =
+            counts.danger > 0
+              ? `${caption}: ${counts.total} ${threatsLabel}, ${counts.danger} ${dangerLabel}`
+              : `${caption}: ${counts.total} ${threatsLabel}`
           return (
-            <div className="metrics-tile" key={key}>
+            <div className="metrics-tile" key={key} role="group" aria-label={describedText}>
               <p className="metrics-tile__number" aria-hidden="true">
                 {counts.total}
               </p>
               <p className="metrics-tile__caption">{caption}</p>
               <p className="metrics-tile__subtitle">{threatsLabel}</p>
-              <p className="metrics-tile__danger">
-                {counts.danger} {dangerLabel}
-              </p>
-              <span className="visually-hidden">
-                {caption}: {counts.total} {threatsLabel}, {counts.danger} {dangerLabel}
-              </span>
+              {counts.danger > 0 && (
+                <p className="metrics-tile__danger">
+                  {counts.danger} {dangerLabel}
+                </p>
+              )}
             </div>
           )
         })}
