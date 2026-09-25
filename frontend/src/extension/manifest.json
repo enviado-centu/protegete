@@ -4,8 +4,9 @@
   "short_name": "Protegete",
   "description": "Te avisa cuando el sitio que estás visitando parece una estafa y te enseña a reconocerlas.",
   "version": "0.1.0",
-  "permissions": ["tabs", "storage", "sidePanel"],
-  "host_permissions": ["http://localhost:8000/*", "<all_urls>"],
+  "permissions": ["tabs", "storage", "sidePanel", "activeTab", "scripting", "webNavigation"],
+  "host_permissions": ["http://localhost:8000/*"],
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
@@ -13,21 +14,6 @@
   "side_panel": {
     "default_path": "sidepanel.html"
   },
-  "content_scripts": [
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["page-probe-main.js"],
-      "world": "MAIN",
-      "run_at": "document_start",
-      "all_frames": false
-    },
-    {
-      "matches": ["http://*/*", "https://*/*"],
-      "js": ["page-probe.js"],
-      "run_at": "document_idle",
-      "all_frames": false
-    }
-  ],
   "action": {
     "default_title": "Protegete",
     "default_icon": {

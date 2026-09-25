@@ -67,6 +67,13 @@
     return minerGlobals
   }
 
+  /** `Notification.permission` is a static, always-readable property (no
+   * hook needed) — 'granted' means the site already has permission,
+   * regardless of when/how it was granted. Never page content. */
+  function notificationPermissionGranted(): boolean {
+    return typeof Notification !== 'undefined' && Notification.permission === 'granted'
+  }
+
   /**
    * Posts a report to the isolated-world listener (page-probe.ts). `final`
    * marks the ~3s/pagehide report that includes the miner-global check, as
@@ -86,6 +93,7 @@
         notificationPromptWithin10s,
         popupsUnsolicited,
         minerGlobals: extra?.minerGlobals ?? [],
+        notificationPermissionGranted: notificationPermissionGranted(),
         final,
       },
       '*',

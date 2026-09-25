@@ -7,9 +7,12 @@
 // tested — kept intentionally thin. Bundled as a classic IIFE (see
 // scripts/build-content-scripts.mjs), never as an ES module.
 //
-// Privacy: only the final numeric/boolean PageSignals object and the page
-// URL (already sent for the base /api/analyze call) are sent onward — never
-// page HTML/script text or cookie values.
+// Privacy: only the final numeric/boolean PageSignals object, the page URL
+// (already sent for the base /api/analyze call) and — only after explicit
+// user consent, since this script now only ever runs post-consent (see
+// scan.ts) — up to 5000 chars of the page's own VISIBLE text
+// (document.body.innerText, never raw HTML/script text, never form field
+// values) are sent onward.
 
 import { collectPageSignals } from './pageProbeCollect'
 import {
@@ -27,6 +30,18 @@ import type { PageSignals } from '../core/types'
 // arrived. Slightly above the MAIN-world script's own ~3s final-report
 // timer so the common case resolves via the report itself, not the cap.
 const MAIN_WORLD_MAX_WAIT_MS = 4000
+
+/** Cap on the visible text sent to /api/analyze-text alongside the page
+ * signals — mirrors the backend's MAX_TEXT_LENGTH-adjacent limit and keeps
+ * the payload bounded regardless of page size. */
+const VISIBLE_TEXT_MAX_LENGTH = 5000
+
+/** Only the visible, rendered text a person reading the page would see —
+ * never raw HTML, script contents, or any form field's value. */
+function collectVisibleText(): string {
+  const text = document.body?.innerText ?? ''
+  return text.slice(0, VISIBLE_TEXT_MAX_LENGTH)
+}
 
 function waitForLoad(): Promise<void> {
   if (document.readyState === 'complete') return Promise.resolve()
@@ -120,9 +135,15 @@ async function run(): Promise<void> {
     offsite_meta_refresh: domSignals.offsite_meta_refresh ?? false,
     third_party_domains: domSignals.third_party_domains ?? 0,
     tracker_cookies: domSignals.tracker_cookies ?? 0,
+    notification_permission_granted: mainWorldReport.notificationPermissionGranted,
+    // popups_opened/forced_redirects (the "portero" counters) are known
+    // only to the background service worker (navigation/tab events, never
+    // page content) — it merges them in before calling /api/analyze-page.
   }
 
-  chrome.runtime.sendMessage({ type: 'page-signals', url: location.href, signals })
+  const visibleText = collectVisibleText()
+
+  chrome.runtime.sendMessage({ type: 'page-signals', url: location.href, signals, visibleText })
 }
 
 void run()

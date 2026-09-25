@@ -2,17 +2,22 @@
 // toolbar badge, records privacy-preserving local metrics, and opens the
 // side panel on the toolbar icon click.
 
-import { analyzePage, analyzeUrl } from '../core/api'
-import { recordVerdict, chromeStore } from './metrics'
-import { setCachedTabVerdict, getCachedTabVerdict, clearCachedTabVerdict } from './tabVerdict'
-import type { Category, Lesson, Level, PageSignal, PageSignals } from '../core/types'
+import { analyzePage, analyzeText, analyzeUrl } from '../core/api'
+import { getCachedTabVerdict, clearCachedTabVerdict } from './tabVerdict'
+import { applyVerdictToTab, setBadge, type TabVerdictInput } from './applyVerdict'
+import {
+  clearBehaviorCounters,
+  emptyCounters,
+  getBehaviorCounters,
+  handleTopLevelCommit,
+  recordChildTabCreated,
+  setBehaviorCounters,
+} from './behaviorWatcher'
+import { mergeVerdicts } from './verdictMerge'
+import type { Level, PageSignals } from '../core/types'
 
-const BADGE_TEXT: Record<Level, string> = { safe: '', caution: '?', danger: '!' }
-const BADGE_COLOR: Record<Level, string> = {
-  safe: '#2d6a4f',
-  caution: '#966000',
-  danger: '#d92d20',
-}
+export type { TabVerdictInput } from './applyVerdict'
+export { applyVerdictToTab } from './applyVerdict'
 
 /** Severity ordering used to decide whether a page-signals enrichment
  * result should replace the cached (base-URL) verdict for a tab. */
@@ -25,52 +30,6 @@ function isHttpUrl(url: string): boolean {
   } catch {
     return false
   }
-}
-
-async function setBadge(tabId: number, level: Level | null) {
-  const text = level ? BADGE_TEXT[level] : ''
-  await chrome.action.setBadgeText({ tabId, text })
-  if (level) {
-    await chrome.action.setBadgeBackgroundColor({ tabId, color: BADGE_COLOR[level] })
-  }
-}
-
-interface TabVerdictInput {
-  level: Level
-  score: number
-  category: Category | string
-  reasons: string[]
-  tip: string
-  pageSignals?: PageSignal[]
-  pageLessons?: Lesson[]
-}
-
-/**
- * Updates the toolbar badge, records the (deduped, domain-hashed) local
- * metric, and caches `verdict` for `tabId`/`url` so the side panel can read
- * it. Shared by the base URL-analysis flow (`handleTabUrl`) and the
- * page-signals enrichment flow (`handlePageSignalsMessage`).
- */
-async function applyVerdictToTab(tabId: number, url: string, verdict: TabVerdictInput): Promise<void> {
-  await setBadge(tabId, verdict.level)
-
-  const domain = new URL(url).hostname
-  await recordVerdict(chromeStore('local'), chromeStore('session'), {
-    domain,
-    level: verdict.level,
-    now: new Date(),
-  })
-
-  await setCachedTabVerdict(tabId, {
-    url,
-    level: verdict.level,
-    score: verdict.score,
-    category: verdict.category,
-    reasons: verdict.reasons,
-    tip: verdict.tip,
-    pageSignals: verdict.pageSignals,
-    pageLessons: verdict.pageLessons,
-  })
 }
 
 /**
@@ -102,18 +61,22 @@ export async function handleTabUrl(tabId: number, url: string): Promise<void> {
 }
 
 /**
- * Handles a `{ type: 'page-signals', url, signals }` runtime message from
- * the content-script orchestrator (page-probe.ts): sends the in-browser
- * signals to POST /api/analyze-page and, when the result is at least as
- * severe as the cached (base-URL) verdict for this tab — strictly higher
- * severity, or the same severity with more reasons — replaces the cached
- * verdict/badge with the richer result. A lower-severity result never
- * downgrades an already-cached higher verdict. Exported so it can be
- * invoked directly (e.g. from tests) without a real
- * `chrome.runtime.onMessage` dispatch.
+ * Handles a `{ type: 'page-signals', url, signals, visibleText? }` runtime
+ * message from the content-script orchestrator (page-probe.ts), only ever
+ * run after explicit user consent (see scan.ts — no more always-on content
+ * scripts). Merges in the background-only "portero" behavior counters
+ * (popups/forced redirects — never page content, see behaviorWatcher.ts),
+ * sends the signals to POST /api/analyze-page, and — when `visibleText` was
+ * collected — also sends it to POST /api/analyze-text and merges both
+ * results (max level wins, reasons unioned/deduped — see verdictMerge.ts).
+ * The merged result replaces the cached (base-URL) verdict for this tab
+ * when it's at least as severe — strictly higher severity, or the same
+ * severity with more reasons; a lower-severity result never downgrades an
+ * already-cached higher verdict. Exported so it can be invoked directly
+ * (e.g. from tests) without a real `chrome.runtime.onMessage` dispatch.
  */
 export async function handlePageSignalsMessage(
-  message: { type?: string; url?: string; signals?: PageSignals },
+  message: { type?: string; url?: string; signals?: PageSignals; visibleText?: string },
   sender: { tab?: { id?: number } },
 ): Promise<void> {
   if (message?.type !== 'page-signals') return
@@ -122,7 +85,24 @@ export async function handlePageSignalsMessage(
   if (tabId == null || !message.url || !message.signals) return
 
   try {
-    const result = await analyzePage(message.url, message.signals)
+    const counters = await getBehaviorCounters(tabId)
+    const signals: PageSignals = {
+      ...message.signals,
+      popups_opened: counters?.popupsOpened ?? 0,
+      forced_redirects: counters?.forcedRedirects ?? 0,
+    }
+
+    let result = await analyzePage(message.url, signals)
+    if (message.visibleText) {
+      try {
+        const textResult = await analyzeText(message.visibleText)
+        result = mergeVerdicts(result, textResult)
+      } catch {
+        // The visible-text pass is additive; the page-signals result alone
+        // still stands if it fails.
+      }
+    }
+
     const cached = await getCachedTabVerdict(tabId)
 
     const shouldUpdate =
@@ -157,12 +137,75 @@ if (typeof chrome !== 'undefined' && chrome.tabs?.onUpdated) {
 
   chrome.tabs.onRemoved?.addListener((tabId) => {
     void clearCachedTabVerdict(tabId)
+    void clearBehaviorCounters(tabId)
   })
 }
 
 if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, sender) => {
     void handlePageSignalsMessage(message, sender)
+  })
+}
+
+// "Portero" (always-on, no page reading — see behaviorWatcher.ts): counts
+// popups/new tabs opened by a tab and forced redirects on a tab's own
+// navigation, purely from navigation/tab events. Exported so tests can
+// drive them directly (e.g. from tests) without real chrome.webNavigation/
+// chrome.tabs events.
+
+/** A child tab was created with `openerTabId` as its opener: counts as an
+ * unsolicited popup only within the opener's grace window (see
+ * `recordChildTabCreated`). Deduped by `newTabId` so the two listeners
+ * below (`onCreatedNavigationTarget` + `tabs.onCreated`) never double-count
+ * the same new tab. */
+const countedPopupTabIds = new Set<number>()
+
+export async function notePopupFromOpener(
+  openerTabId: number | undefined | null,
+  newTabId: number | undefined | null,
+  now: number = Date.now(),
+): Promise<void> {
+  if (openerTabId == null || newTabId == null) return
+  if (countedPopupTabIds.has(newTabId)) return
+  countedPopupTabIds.add(newTabId)
+
+  const counters = await getBehaviorCounters(openerTabId)
+  if (!counters) return
+  await setBehaviorCounters(openerTabId, recordChildTabCreated(counters, now))
+}
+
+/** One `chrome.webNavigation.onCommitted` event for a top-level frame:
+ * resets the tab's counters on a fresh navigation, or increments
+ * `forcedRedirects` on a client/server-redirect navigation (see
+ * `handleTopLevelCommit`). */
+export async function noteTopLevelCommit(
+  tabId: number,
+  transitionQualifiers: string[] | undefined,
+  now: number = Date.now(),
+): Promise<void> {
+  const isRedirect = (transitionQualifiers ?? []).some(
+    (q) => q === 'client_redirect' || q === 'server_redirect',
+  )
+  const counters = (await getBehaviorCounters(tabId)) ?? emptyCounters(now)
+  await setBehaviorCounters(tabId, handleTopLevelCommit(counters, now, isRedirect))
+}
+
+if (typeof chrome !== 'undefined' && chrome.webNavigation?.onCommitted) {
+  chrome.webNavigation.onCommitted.addListener((details) => {
+    if (details.frameId !== 0) return
+    void noteTopLevelCommit(details.tabId, details.transitionQualifiers)
+  })
+}
+
+if (typeof chrome !== 'undefined' && chrome.webNavigation?.onCreatedNavigationTarget) {
+  chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
+    void notePopupFromOpener(details.sourceTabId, details.tabId)
+  })
+}
+
+if (typeof chrome !== 'undefined' && chrome.tabs?.onCreated) {
+  chrome.tabs.onCreated.addListener((tab) => {
+    void notePopupFromOpener(tab.openerTabId, tab.id)
   })
 }
 

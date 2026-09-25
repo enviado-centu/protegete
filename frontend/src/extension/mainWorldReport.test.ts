@@ -31,6 +31,7 @@ describe('mergeMainWorldReport', () => {
       notificationPromptWithin10s: false,
       popupsUnsolicited: 0,
       minerGlobals: [],
+      notificationPermissionGranted: false,
     })
   })
 
@@ -48,6 +49,7 @@ describe('mergeMainWorldReport', () => {
       notificationPromptWithin10s: true,
       popupsUnsolicited: 2,
       minerGlobals: [],
+      notificationPermissionGranted: false,
     })
   })
 
@@ -95,6 +97,7 @@ describe('mergeMainWorldReport', () => {
       notificationPromptWithin10s: true,
       popupsUnsolicited: 5,
       minerGlobals: ['CryptoLoot'],
+      notificationPermissionGranted: false,
     })
   })
 
@@ -119,6 +122,17 @@ describe('mergeMainWorldReport', () => {
     })
 
     expect(afterStaleEarly.minerGlobals).toEqual(['WMP'])
+  })
+})
+
+describe('notificationPermissionGranted', () => {
+  test('carried through by the final report and preserved by later omitting messages', () => {
+    const afterFinal = mergeMainWorldReport(emptyMainWorldReport(), {
+      source: 'protegete-probe',
+      final: true,
+      notificationPermissionGranted: true,
+    })
+    expect(afterFinal.notificationPermissionGranted).toBe(true)
   })
 })
 

@@ -18,7 +18,7 @@ const VERDICT_ICON: Record<CachedTabVerdict['level'], string> = {
 /** Compact subject line for the current-tab verdict: just the host, so the
  * pill stays readable at side-panel widths (~300-400px). Falls back to the
  * raw string when it isn't a parseable URL. */
-function hostOf(url: string): string {
+export function hostOf(url: string): string {
   try {
     return new URL(url).hostname
   } catch {

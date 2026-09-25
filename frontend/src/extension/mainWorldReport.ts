@@ -19,6 +19,11 @@ export interface MainWorldReport {
   notificationPromptWithin10s: boolean
   popupsUnsolicited: number
   minerGlobals: string[]
+  /** `Notification.permission === 'granted'` at report time — a static
+   * boolean snapshot (Feature B.3), never page content. Consent-first
+   * scanning surfaces this so the user can see the site already has
+   * notification permission and revoke it. */
+  notificationPermissionGranted: boolean
 }
 
 export function emptyMainWorldReport(): MainWorldReport {
@@ -27,6 +32,7 @@ export function emptyMainWorldReport(): MainWorldReport {
     notificationPromptWithin10s: false,
     popupsUnsolicited: 0,
     minerGlobals: [],
+    notificationPermissionGranted: false,
   }
 }
 
@@ -70,6 +76,8 @@ export function mergeMainWorldReport(
       incoming.notificationPromptWithin10s ?? previous.notificationPromptWithin10s,
     popupsUnsolicited: incoming.popupsUnsolicited ?? previous.popupsUnsolicited,
     minerGlobals: incoming.minerGlobals ?? previous.minerGlobals,
+    notificationPermissionGranted:
+      incoming.notificationPermissionGranted ?? previous.notificationPermissionGranted,
   }
 }
 
