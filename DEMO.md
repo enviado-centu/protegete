@@ -1,7 +1,7 @@
 # Guía de demo — Protegete
 
 Guía rápida para levantar el proyecto y mostrarlo en vivo: backend, PWA y
-extensión de Chrome, con 6 casos de prueba y sus respuestas reales.
+extensión de Chrome, con 7 casos de prueba y sus respuestas reales.
 
 ## Requisitos
 
@@ -76,7 +76,7 @@ chat.
    está activo). Si falla, la demo sigue: el chat solo pierde la respuesta
    conversacional adicional (capa B), no el veredicto principal (capa A).
 
-## 6 casos de demo
+## 7 casos de demo
 
 Todos los casos fueron ejecutados contra el backend real (no simulados)
 el 2026-09-24.
@@ -227,6 +227,56 @@ no hay marca que imitar, así que las reglas de impersonation/estructura de
 URL no alcanzaban. Contraejemplo de sitio oficial que **no** se marca:
 `https://www.tycsports.com/envivo` sigue dando `safe` (whitelist).
 
+### Caso 7 — Página con código malicioso (inspección en vivo, Feature C)
+
+A diferencia de los casos 1-6 (que solo analizan la URL), este caso muestra
+la **inspección de la página en el navegador**: dos content scripts de la
+extensión (`page-probe-main.ts`, en el mundo JS de la página, y
+`page-probe.ts`, en el mundo aislado) detectan comportamiento malicioso que
+ninguna URL por sí sola revela -- minería de criptomonedas, publicidad
+maliciosa, código ofuscado, iframes escondidos -- y envían solo
+booleanos/contadores (nunca el HTML/JS de la página) a
+`POST /api/analyze-page` para enriquecer el veredicto base.
+
+**Input:** `demo/pagina-maliciosa.html` (fixture local con un `<script
+src="https://popads.net/pop.js">` de una red de malvertising conocida, un
+`window.CoinHive = {}` -- global falso de un minero conocido -- seteado
+apenas carga la página, un script inline con `eval(atob(...))` sobre una
+cadena base64 larga, y un iframe cross-origin de 1x1px escondido fuera de
+pantalla).
+
+Levantarla localmente:
+
+```bash
+cd demo
+python -m http.server 8765
+```
+
+Y abrir **http://localhost:8765/pagina-maliciosa.html** con la extensión
+cargada (ver "3. Extensión de Chrome" más arriba). A los ~3-4 segundos el
+ícono de la extensión pasa a `!` (peligro) y el panel lateral muestra:
+
+**Salida real observada** (badge + veredicto cacheado, leídos vía
+`chrome.action.getBadgeText` / `chrome.storage.session` en Chromium
+headless contra el build real de `dist-extension/`):
+
+- Badge: `"!"` (peligro)
+- `level: "danger"`, `category: "malicious"`, `score: 1.0`
+- `page_signals` (4, con sus lecciones asociadas):
+  - `cryptominer` — "La página usa tu computadora para minar criptomonedas sin avisarte."
+  - `malvertising` — "La página carga publicidad de redes conocidas por pop-ups engañosos y descargas falsas."
+  - `obfuscated_js` — "Tiene código escondido a propósito, algo típico de sitios maliciosos."
+  - `hidden_iframes` — "La página esconde ventanas invisibles (iframes) que pueden ejecutar código sin que lo notes."
+- Tip: "Este sitio fue marcado como peligroso: no ingreses datos ni sigas navegando en él."
+- 2 lecciones en el panel: "Publicidad engañosa y pop-ups" (📢) y "Código
+  escondido y mineros" (🦠).
+
+En vivo, en el panel lateral (`sidepanel.html`), la tarjeta "⛔ Peligroso ·
+localhost" se expande a las 4 razones + lección, y debajo aparece la
+sección plegable "🔍 Lo que encontramos en la página" con el mismo detalle
+-- separada de la tarjeta principal para distinguir "lo que dice la URL"
+de "lo que vimos al abrir la página".
+
 ### Pregunta libre para el chat (capa B / LLM)
 
 **Input:** `¿Cómo verifico si un mail del banco es realmente oficial?`
@@ -340,6 +390,36 @@ un modelo ML liviano corren en el mismo proceso FastAPI. La capa B (LLM) es
 la única con costo variable por request, y es opcional/aditiva por diseño:
 si el volumen crece, se puede limitar o cachear sin afectar el veredicto
 principal, que es lo que efectivamente protege al usuario.
+
+**¿Cómo inspeccionan la página sin comprometer la privacidad del
+usuario?** Dos content scripts corren enteramente en el navegador del
+usuario (`page-probe-main.ts` en el mundo JS de la página, para
+interceptar `window.open`/`Notification.requestPermission` reales;
+`page-probe.ts` en el mundo aislado, para leer el DOM) y calculan ahí mismo
+un objeto fijo de booleanos y contadores (`cryptominer`, `malvertising`,
+`obfuscated_js`, `hidden_iframes`, `popups`, etc. -- ver
+`frontend/src/core/types.ts`'s `PageSignals`). Solo ese objeto y la URL
+(ya enviada igual para el análisis base) viajan a `POST
+/api/analyze-page`; el HTML, el texto de los scripts, y los valores de
+cookies **nunca** salen del navegador -- ni se loguean ni se persisten en
+el backend (mismo principio que `/api/analyze`/`/api/analyze-text`, ver
+"Privacidad" en `backend/README.md`). Una señal de página débil por sí
+sola tampoco alcanza "peligroso": el score de señales de página está
+acotado a 0.6 salvo que se combine con algo más fuerte o el modelo ML ya
+esté sobre el umbral.
+
+**¿Por qué las cookies de seguimiento no son, por sí solas, prueba de que
+un sitio es malicioso?** Cookies de analítica/publicidad
+(`_ga`, `_fbp`, etc.) son extremadamente comunes en sitios legítimos --
+casi cualquier sitio con Google Analytics o Meta Pixel las tiene. Por eso
+`tracker_cookies` es la única señal de página explícitamente **informativa**
+(`app/services/page_rules.py`): se muestra en el panel cuando hay varias,
+pero nunca suma al score, nunca cambia `level`/`category`, y no tiene
+lección asociada. Lo que sí es señal de riesgo real es comportamiento
+activo y verificable -- un iframe escondido ejecutando código, un global
+conocido de minero de criptomonedas, un script que hace `eval(atob(...))`
+sobre una cadena larga, publicidad de una red conocida por malware -- no
+la mera presencia de cookies.
 
 **¿De dónde sacan la reputación de un sitio (caso 6, fútbol pirata)?**
 De dos fuentes, ambas opcionales de combinar: una regla determinística y

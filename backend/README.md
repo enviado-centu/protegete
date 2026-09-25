@@ -98,6 +98,30 @@ URLs in this checkout). The backend picks it up on next process start
 at request time or on backend startup -- refresh it manually, on a
 schedule you control.
 
+### URLhaus malware-URL feed and `malware_host` rule
+
+Separately from the motor's own blacklist, `app/services/feeds.py` lazily
+loads a second, independent feed: [URLhaus](https://urlhaus.abuse.ch/)
+(abuse.ch), a public list of URLs currently distributing malware. It's
+stored at `backend/data/urlhaus.txt` (gitignored -- only `backend/data/
+.gitkeep` is committed) and matched in `app/services/rules.py`'s
+`malware_host` rule (weight 1.0, category `malicious`), which does **not**
+short-circuit like the motor's own blacklist but flows through the normal
+`max(rule weight, ML score)` scoring like `reputation_flagged`/
+`pirate_streaming`. Missing the feed file is never an error -- the rule
+simply never fires until the feed is fetched.
+
+Refresh it manually (or on a schedule you control):
+
+```bash
+cd backend
+uv run python -m app.scripts.update_feeds
+```
+
+Downloads the current URLhaus recent-URLs text feed, writes it atomically
+(temp file + rename) to `backend/data/urlhaus.txt`, and reloads the
+in-process cache. Configurable via the `URLHAUS_FEED_PATH` env var.
+
 ## Run
 
 ```bash
@@ -330,6 +354,57 @@ than `OLLAMA_TIMEOUT_S` (default 8s), the endpoint still answers `200` with:
 ```
 
 No message content, URL or verdict is ever logged or persisted.
+
+### `POST /api/analyze-page`
+
+Enriches a base URL verdict with page-behavior signals collected entirely
+in-browser by the extension's content scripts (`frontend/src/extension/
+page-probe.ts` / `page-probe-main.ts`) -- never page HTML, script text, or
+cookie values themselves, only booleans/counts/matched-network-name lists.
+Request:
+
+```json
+{
+  "url": "https://example.com/",
+  "signals": {
+    "malvertising": ["popads.net"],
+    "cryptominer": true,
+    "obfuscated_js": 1,
+    "hidden_iframes": 1,
+    "insecure_password_form": false,
+    "cross_site_password_form": false,
+    "notification_prompt": false,
+    "popups": 0,
+    "offsite_meta_refresh": false,
+    "third_party_domains": 2,
+    "tracker_cookies": 0
+  }
+}
+```
+
+Response extends `/api/analyze`'s shape with `page_signals` (fired
+page-level red flags, scoring or info-only, each `{id, reason}`) and
+`lessons` (one lesson per fired page rule, from `GET /api/lessons`).
+`signals` is optional and every field defaults to its inert
+value (`false`/`0`/`[]`), so `{"url": "..."}` alone behaves exactly like
+`/api/analyze` plus empty `page_signals`/`lessons`.
+
+Page rules mirror `/api/analyze`'s "max weight + combo bonus" shape, with a
+larger per-extra-rule bonus (0.15) since independent live-page evidence
+corroborates the URL verdict more strongly than another URL-only
+heuristic. `tracker_cookies` alone is never a scoring signal -- too weak
+and common on legitimate sites -- it only ever produces an info-only
+`page_signals` entry with no lesson attached and no effect on
+`level`/`score`/`category`. A whitelisted official domain's forced-`safe`
+verdict is never overridden by page signals (`page_signals`/`lessons` come
+back empty for it, same "official site using analytics/ads infra must
+stay safe" behavior as `/api/analyze`).
+
+```bash
+curl -s -X POST localhost:8000/api/analyze-page \
+  -H 'content-type: application/json' \
+  -d '{"url": "http://example-scam-site.invalid/", "signals": {"malvertising": ["popads.net"], "cryptominer": true, "obfuscated_js": 1, "hidden_iframes": 1}}'
+```
 
 ## How scoring works
 
