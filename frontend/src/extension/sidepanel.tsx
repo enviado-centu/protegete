@@ -10,7 +10,7 @@ import { StatusPill, hostOf } from './StatusPill'
 import { MetricsTiles } from './MetricsTiles'
 import { getCachedTabVerdict, type CachedTabVerdict } from './tabVerdict'
 import { getMetrics, chromeStore, type Metrics } from './metrics'
-import { applyVerdictToTab } from './background'
+import { applyVerdictToTab } from './applyVerdict'
 import { ConsentCard } from './ConsentCard'
 import { ScreenshotButton } from './ScreenshotButton'
 import { RememberedSites } from './RememberedSites'
@@ -73,6 +73,8 @@ function SidePanel() {
   const [lessons, setLessons] = useState<Lesson[]>([])
   const [hasMessages, setHasMessages] = useState(false)
   const [metricsExpanded, setMetricsExpanded] = useState(true)
+  const [rememberedOrigins, setRememberedOrigins] = useState<string[]>([])
+  const [consentDismissed, setConsentDismissed] = useState(false)
 
   const handleHasMessagesChange = useCallback((value: boolean) => {
     setHasMessages(value)
@@ -106,6 +108,41 @@ function SidePanel() {
       chrome.storage.onChanged.removeListener(onChanged)
     }
   }, [])
+
+  useEffect(() => {
+    setConsentDismissed(false)
+  }, [contextKey])
+
+  useEffect(() => {
+    let cancelled = false
+    getRememberedOrigins().then((origins) => {
+      if (!cancelled) setRememberedOrigins(origins)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [tabVerdict?.pageSignals])
+
+  async function handleScreenshotResult(result: ScreenshotReviewResult) {
+    if (tabId == null || !tabVerdict) return
+    const merged = mergeVerdicts(
+      {
+        level: tabVerdict.level,
+        score: tabVerdict.score,
+        category: tabVerdict.category,
+        reasons: tabVerdict.reasons,
+        tip: tabVerdict.tip,
+      },
+      result,
+    )
+    await applyVerdictToTab(tabId, tabVerdict.url, {
+      ...merged,
+      pageSignals: tabVerdict.pageSignals,
+      pageLessons: tabVerdict.pageLessons,
+    })
+    const fresh = await getCachedTabVerdict(tabId)
+    setTabVerdict(fresh)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -154,7 +191,23 @@ function SidePanel() {
           <section aria-label="Veredicto de esta página">
             <StatusPill tabVerdict={tabVerdict} lessons={lessons} />
           </section>
+          {tabVerdict &&
+            tabId != null &&
+            isHttpUrl(tabVerdict.url) &&
+            tabVerdict.pageSignals === undefined &&
+            !consentDismissed &&
+            !rememberedOrigins.includes(originOf(tabVerdict.url) ?? '') && (
+              <ConsentCard
+                url={tabVerdict.url}
+                tabId={tabId}
+                onDismiss={() => setConsentDismissed(true)}
+              />
+            )}
+          {tabVerdict && tabVerdict.pageSignals !== undefined && (
+            <ScreenshotButton onResult={handleScreenshotResult} />
+          )}
           {metrics && <MetricsTiles metrics={metrics} />}
+          <RememberedSites />
         </div>
       )}
 

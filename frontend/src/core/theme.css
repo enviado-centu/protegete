@@ -573,6 +573,87 @@ button:disabled {
   color: var(--color-text-muted);
 }
 
+/* Consent-first page scanning card (Feature B). */
+.consent-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-2);
+  margin-top: var(--space-2);
+  background: var(--color-surface-raised);
+}
+
+.consent-card__title {
+  margin-top: 0;
+}
+
+.consent-card__checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin: var(--space-2) 0;
+}
+
+.consent-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.consent-card__btn {
+  min-height: 48px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.consent-card__btn--primary {
+  background: var(--color-accent, #2d6a4f);
+  color: #fff;
+  border-color: transparent;
+}
+
+.consent-card--note {
+  margin-top: var(--space-2);
+  color: var(--color-text-muted);
+}
+
+.screenshot-btn {
+  margin-top: var(--space-2);
+}
+
+.screenshot-btn__status {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+}
+
+.remembered-sites__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.remembered-sites__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.remembered-sites__remove {
+  min-height: 40px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font: inherit;
+}
+
 /* Compact one-line current-page verdict, expandable via <details>. */
 .status-pill {
   border-radius: var(--radius-md);
