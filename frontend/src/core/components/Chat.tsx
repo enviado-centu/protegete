@@ -10,7 +10,7 @@ import {
 import { buildReplyA, classifyInput, matchLessons } from '../chatEngine'
 import { extractText } from '../ocr'
 import { newId } from '../id'
-import type { ChatContext, Lesson } from '../types'
+import type { ChatContext, ChatHistoryTurn, Lesson, TextVerdict, UrlVerdict } from '../types'
 import type { ChatMessage } from './chatMessage'
 import { MessageBubble } from './MessageBubble'
 import { Composer } from './Composer'
@@ -21,6 +21,46 @@ export interface ChatProps {
    * back). Lets a host layout (e.g. the extension side panel) collapse a
    * top area once the chat is in use. */
   onHasMessagesChange?: (hasMessages: boolean) => void
+  /** Evidence already known before the first message (e.g. the extension
+   * side panel's current-tab verdict), used to ground layer-B answers to a
+   * plain "¿por qué es peligroso?" with no prior analysis in this chat. */
+  initialContext?: ChatContext | null
+  /** Identifies which page/tab `initialContext` belongs to. Changing this
+   * (e.g. the user switched tabs) resets the grounded conversation history
+   * and re-seeds `lastContext` from the new `initialContext`, so an old
+   * page's evidence never leaks into a new page's answers. */
+  contextKey?: string
+}
+
+const MAX_HISTORY_TURNS = 6
+const MAX_HISTORY_TEXT_LENGTH = 600
+
+function truncateForHistory(text: string): string {
+  return text.length > MAX_HISTORY_TEXT_LENGTH ? text.slice(0, MAX_HISTORY_TEXT_LENGTH) : text
+}
+
+function pushHistory(history: ChatHistoryTurn[], turn: ChatHistoryTurn): ChatHistoryTurn[] {
+  const next = [...history, { role: turn.role, text: truncateForHistory(turn.text) }]
+  return next.length > MAX_HISTORY_TURNS ? next.slice(next.length - MAX_HISTORY_TURNS) : next
+}
+
+function contextFromUrlVerdict(verdict: UrlVerdict): ChatContext {
+  return {
+    level: verdict.level,
+    category: verdict.category,
+    url: verdict.url,
+    reasons: verdict.reasons,
+    signals: verdict.rules.map((rule) => ({ id: rule.id, evidence: '' })),
+  }
+}
+
+function contextFromTextVerdict(verdict: TextVerdict): ChatContext {
+  return {
+    level: verdict.level,
+    category: verdict.category,
+    reasons: verdict.reasons,
+    signals: verdict.signals,
+  }
 }
 
 type BusyPhase = 'ocr' | 'analyzing' | null
@@ -56,14 +96,30 @@ const OCR_FAILED_MESSAGE = 'No pude leer la imagen. Probá con otra captura o pe
  * (deterministic backend analysis) and, in parallel, layer B (`/api/chat`,
  * additive only). Reused by both the PWA shell and the extension side panel.
  */
-export function Chat({ initialMessages = [], onHasMessagesChange }: ChatProps) {
+export function Chat({
+  initialMessages = [],
+  onHasMessagesChange,
+  initialContext = null,
+  contextKey,
+}: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [draft, setDraft] = useState('')
   const [lessonsCatalog, setLessonsCatalog] = useState<Lesson[]>([])
-  const [lastContext, setLastContext] = useState<ChatContext | null>(null)
+  const [lastContext, setLastContext] = useState<ChatContext | null>(initialContext)
+  const [history, setHistory] = useState<ChatHistoryTurn[]>([])
   const [busy, setBusy] = useState(false)
   const [busyPhase, setBusyPhase] = useState<BusyPhase>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // The tab/page changed (or a fresh verdict for it arrived): re-seed the
+  // grounded context from the new evidence and drop the old page's short
+  // conversation memory, so a stale page's evidence never grounds an answer
+  // about the new one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    setLastContext(initialContext)
+    setHistory([])
+  }, [contextKey])
 
   // Auto-scroll to the newest message (or status bubble) so the composer
   // never covers the latest reply (spec: message list scrolls, composer
@@ -100,27 +156,53 @@ export function Chat({ initialMessages = [], onHasMessagesChange }: ChatProps) {
     setMessages((prev) => [...prev, message])
   }
 
+  /** A free question with no new verdict to compute: layer B (grounded in
+   * whatever verdict/history is already known, e.g. the current page) runs
+   * FIRST and becomes the main reply, with the matching lesson cards
+   * collapsed under "Aprendé más" underneath it. Only when layer B fails or
+   * times out do the lesson cards show on their own, as before. */
+  async function runQuestion(text: string) {
+    let answer: string | null = null
+    try {
+      const chatAnswer = await askChat(text, lastContext, history)
+      answer = chatAnswer.answer
+    } catch {
+      answer = null
+    }
+
+    const lessons = matchLessons(text, lessonsCatalog, 3)
+    if (answer) {
+      append({ id: newId(), role: 'assistantB', text: answer, lessons })
+      setHistory((prev) => pushHistory(pushHistory(prev, { role: 'user', text }), { role: 'assistant', text: answer as string }))
+    } else {
+      append({ id: newId(), role: 'assistantA', lessons })
+    }
+  }
+
   async function runAnalysis(text: string) {
     setBusyPhase('analyzing')
     const kind = classifyInput(text)
+
+    if (kind === 'question') {
+      await runQuestion(text)
+      return
+    }
+
     let context: ChatContext | null = lastContext
 
     try {
       if (kind === 'url') {
         const verdict = await analyzeUrl(text)
         const reply = buildReplyA(verdict, lessonsCatalog)
-        context = { level: verdict.level, signals: [] }
-        setLastContext(context)
-        append({ id: newId(), role: 'assistantA', reply })
-      } else if (kind === 'text') {
-        const verdict = await analyzeText(text)
-        const reply = buildReplyA(verdict, lessonsCatalog)
-        context = { level: verdict.level, signals: verdict.signals }
+        context = contextFromUrlVerdict(verdict)
         setLastContext(context)
         append({ id: newId(), role: 'assistantA', reply })
       } else {
-        const lessons = matchLessons(text, lessonsCatalog, 3)
-        append({ id: newId(), role: 'assistantA', lessons })
+        const verdict = await analyzeText(text)
+        const reply = buildReplyA(verdict, lessonsCatalog)
+        context = contextFromTextVerdict(verdict)
+        setLastContext(context)
+        append({ id: newId(), role: 'assistantA', reply })
       }
     } catch (error) {
       if (error instanceof ApiUnavailableError) {
@@ -135,9 +217,11 @@ export function Chat({ initialMessages = [], onHasMessagesChange }: ChatProps) {
     // Layer B, additive: runs after A resolves, never blocks or errors the
     // conversation (spec §5 — timeout/error means A stands alone).
     try {
-      const chatAnswer = await askChat(text, context)
+      const chatAnswer = await askChat(text, context, history)
       if (chatAnswer.answer) {
-        append({ id: newId(), role: 'assistantB', text: chatAnswer.answer })
+        const answer = chatAnswer.answer
+        append({ id: newId(), role: 'assistantB', text: answer })
+        setHistory((prev) => pushHistory(pushHistory(prev, { role: 'user', text }), { role: 'assistant', text: answer }))
       }
     } catch {
       // silent by design

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { Chat } from './Chat'
 import * as api from '../api'
 import * as ocr from '../ocr'
+import type { ChatContext } from '../types'
 
 vi.mock('../api')
 vi.mock('../ocr')
@@ -198,5 +199,114 @@ describe('Chat', () => {
 
     expect(await screen.findByText('Parece seguro')).toBeInTheDocument()
     expect(onHasMessagesChange).toHaveBeenCalledWith(true)
+  })
+
+  test('a question calls layer B first and shows the answer as the main reply', async () => {
+    vi.mocked(api.askChat).mockResolvedValue({ answer: 'Porque te pide la clave.', fallback: false })
+    const analyzeTextCallsBefore = vi.mocked(api.analyzeText).mock.calls.length
+    const analyzeUrlCallsBefore = vi.mocked(api.analyzeUrl).mock.calls.length
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, '¿por qué es peligroso?')
+
+    expect(await screen.findByText('Porque te pide la clave.')).toBeInTheDocument()
+    expect(vi.mocked(api.analyzeText).mock.calls.length).toBe(analyzeTextCallsBefore)
+    expect(vi.mocked(api.analyzeUrl).mock.calls.length).toBe(analyzeUrlCallsBefore)
+  })
+
+  test('a question with lessons collapses them under "Aprendé más"', async () => {
+    vi.mocked(api.getLessons).mockResolvedValue([
+      {
+        id: 'urgency',
+        icon: '⏰',
+        title: 'Te apuran para que no pienses',
+        how_to_spot: 'x',
+        example: 'y',
+        what_to_do: 'z',
+      },
+    ])
+    vi.mocked(api.askChat).mockResolvedValue({ answer: 'Porque te apura.', fallback: false })
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, '¿por qué es urgente?')
+
+    await screen.findByText('Porque te apura.')
+    const details = screen.getByText('Aprendé más').closest('details')
+    expect(details).not.toBeNull()
+    expect(details).not.toHaveAttribute('open')
+    expect(screen.getByText('Te apuran para que no pienses')).toBeInTheDocument()
+  })
+
+  test('a question falls back to lesson cards when layer B fails', async () => {
+    vi.mocked(api.getLessons).mockResolvedValue([
+      {
+        id: 'urgency',
+        icon: '⏰',
+        title: 'Te apuran para que no pienses',
+        how_to_spot: 'x',
+        example: 'y',
+        what_to_do: 'z',
+      },
+    ])
+    vi.mocked(api.askChat).mockRejectedValue(new Error('timeout'))
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, '¿por qué es urgente?')
+
+    expect(await screen.findByText('Te apuran para que no pienses')).toBeInTheDocument()
+    expect(screen.queryByText('Aprendé más')).not.toBeInTheDocument()
+  })
+
+  test('a URL verdict builds a full grounded context (url, category, reasons)', async () => {
+    vi.mocked(api.analyzeUrl).mockResolvedValue({
+      url: 'http://bna-homebanking-verificar.xyz',
+      level: 'danger',
+      score: 0.9,
+      category: 'suspicious_domain',
+      reasons: ['El sitio imita a un banco pero no es su dirección oficial.'],
+      tip: 'No ingreses tus datos ahí.',
+      ml: { probability: 0.9, threshold: 0.5, flagged: true, top_features: [] },
+      rules: [{ id: 'fake_domain', weight: 0.5 }],
+      details: { blacklist: false, whitelist: false, ml_probability: 0.9, reputation: 'unavailable' },
+    })
+    vi.mocked(api.askChat).mockResolvedValue({ answer: null, fallback: true })
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, 'bna-homebanking-verificar.xyz')
+
+    await screen.findByText('Peligroso')
+    expect(api.askChat).toHaveBeenCalledWith(
+      'bna-homebanking-verificar.xyz',
+      expect.objectContaining({
+        level: 'danger',
+        category: 'suspicious_domain',
+        url: 'http://bna-homebanking-verificar.xyz',
+        reasons: ['El sitio imita a un banco pero no es su dirección oficial.'],
+      }),
+      [],
+    )
+  })
+
+  test('initialContext seeds the first question, and history grows with each turn', async () => {
+    const context: ChatContext = {
+      level: 'danger',
+      url: 'http://scam.example',
+      category: 'malicious',
+      reasons: ['Está en una lista de sitios maliciosos.'],
+    }
+    vi.mocked(api.askChat).mockResolvedValue({ answer: 'Porque está en una lista negra.', fallback: false })
+    render(<Chat initialContext={context} contextKey="tab-1" />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, '¿por qué es peligroso?')
+
+    await screen.findByText('Porque está en una lista negra.')
+    expect(api.askChat).toHaveBeenCalledWith('¿por qué es peligroso?', context, [])
+
+    await typeAndSend(input, '¿qué hago ahora?')
+    await screen.findAllByText('Porque está en una lista negra.')
+    expect(api.askChat).toHaveBeenLastCalledWith('¿qué hago ahora?', context, [
+      { role: 'user', text: '¿por qué es peligroso?' },
+      { role: 'assistant', text: 'Porque está en una lista negra.' },
+    ])
   })
 })

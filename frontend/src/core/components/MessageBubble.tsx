@@ -61,8 +61,17 @@ export function MessageBubble({ message, onChipSelect }: MessageBubbleProps) {
           <QuickChips chips={message.reply.chips} onSelect={onChipSelect} />
         </>
       )}
-      {message.lessons &&
+      {message.lessons && message.lessons.length > 0 && message.role === 'assistantB' && (
+        <details className="bubble__more-lessons">
+          <summary>Aprendé más</summary>
+          {message.lessons.map((lesson) => (
+            <LessonCard key={lesson.id} lesson={lesson} />
+          ))}
+        </details>
+      )}
+      {message.lessons && message.lessons.length > 0 && message.role !== 'assistantB' &&
         message.lessons.map((lesson) => <LessonCard key={lesson.id} lesson={lesson} />)}
+      {message.chips && <QuickChips chips={message.chips} onSelect={onChipSelect} />}
       {isAssistant && isSpeechSupported() && (
         <button
           type="button"

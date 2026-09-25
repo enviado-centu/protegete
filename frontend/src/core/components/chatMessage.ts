@@ -12,4 +12,7 @@ export interface ChatMessage {
   reply?: Reply
   /** Layer A lesson-only reply (free question with no verdict attached). */
   lessons?: Lesson[]
+  /** Quick-reply chips shown under a plain assistant bubble (no `reply`),
+   * e.g. the side panel's opening greeting. */
+  chips?: string[]
 }

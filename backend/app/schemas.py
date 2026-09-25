@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.lessons import Lesson
@@ -10,6 +12,11 @@ from app.services.urlinfo import has_plausible_host
 MAX_URL_LENGTH = 2048
 MAX_TEXT_LENGTH = 5000
 MAX_CHAT_MESSAGE_LENGTH = 2000
+MAX_CHAT_REASON_LENGTH = 300
+MAX_CHAT_REASONS = 12
+MAX_CHAT_PAGE_SIGNALS = 20
+MAX_CHAT_HISTORY_TURNS = 6
+MAX_CHAT_HISTORY_TEXT_LENGTH = 600
 
 
 class AnalyzeRequest(BaseModel):
@@ -137,6 +144,12 @@ class PageSignals(BaseModel):
     offsite_meta_refresh: bool = False
     third_party_domains: int = Field(default=0, ge=0, le=1000)
     tracker_cookies: int = Field(default=0, ge=0, le=1000)
+    # "Portero" (always-on, no page reading) behavior counters -- see
+    # background.ts's behaviorWatcher.ts. Counted from navigation/tab
+    # events only, never from page content.
+    popups_opened: int = Field(default=0, ge=0, le=1000)
+    forced_redirects: int = Field(default=0, ge=0, le=1000)
+    notification_permission_granted: bool = False
 
 
 class PageSignal(BaseModel):
@@ -174,11 +187,41 @@ class AnalyzePageResponse(AnalyzeResponse):
     lessons: list[Lesson]
 
 
+class ChatPageSignal(BaseModel):
+    """One page-behavior signal surfaced to the chat as grounding evidence."""
+
+    id: str
+    reason: str = Field(..., max_length=MAX_CHAT_REASON_LENGTH)
+
+
 class ChatContext(BaseModel):
-    """Verified verdict context passed alongside a chat question, if any."""
+    """Verified verdict context passed alongside a chat question, if any.
+
+    Everything here comes from a deterministic layer-A verdict (never
+    user-typed free text beyond `message` itself) so the chat can be
+    grounded in real evidence instead of guessing. `reasons` and
+    `page_signals` are bounded so a pathological verdict can't blow up the
+    LLM prompt.
+    """
 
     level: str | None = None
     signals: list[Signal] = Field(default_factory=list)
+    url: str | None = None
+    category: str | None = None
+    reasons: list[str] = Field(default_factory=list, max_length=MAX_CHAT_REASONS)
+    page_signals: list[ChatPageSignal] = Field(default_factory=list, max_length=MAX_CHAT_PAGE_SIGNALS)
+
+    @field_validator("reasons")
+    @classmethod
+    def _truncate_reasons(cls, value: list[str]) -> list[str]:
+        return [reason[:MAX_CHAT_REASON_LENGTH] for reason in value]
+
+
+class ChatHistoryTurn(BaseModel):
+    """One prior turn of the conversation, sent back so layer B has short memory."""
+
+    role: Literal["user", "assistant"]
+    text: str = Field(..., max_length=MAX_CHAT_HISTORY_TEXT_LENGTH)
 
 
 class ChatRequest(BaseModel):
@@ -186,6 +229,7 @@ class ChatRequest(BaseModel):
 
     message: str = Field(..., min_length=1, max_length=MAX_CHAT_MESSAGE_LENGTH)
     context: ChatContext | None = None
+    history: list[ChatHistoryTurn] = Field(default_factory=list, max_length=MAX_CHAT_HISTORY_TURNS)
 
     @field_validator("message")
     @classmethod

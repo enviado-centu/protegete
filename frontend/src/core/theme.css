@@ -552,6 +552,18 @@ button:disabled {
   font-size: 0.95rem;
 }
 
+/* Layer-B answers to a free question carry their matching lesson cards
+   collapsed underneath, so the grounded answer itself stays the focus. */
+.bubble__more-lessons {
+  margin-top: var(--space-2);
+}
+
+.bubble__more-lessons > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
 /* Ephemeral busy-feedback bubble ("Leyendo la imagen…" / "Analizando…"):
    styled like the system bubble but with role="status" so it's announced
    right away, and removed as soon as the phase ends. */

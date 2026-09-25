@@ -86,5 +86,5 @@ def lessons() -> list[Lesson]:
 @app.post("/api/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest) -> ChatResponse:
     # Privacy: the chat message is never logged or persisted anywhere.
-    answer = llm.ask(payload.message, payload.context)
+    answer = llm.ask(payload.message, payload.context, history=payload.history)
     return ChatResponse(answer=answer, fallback=answer is None)

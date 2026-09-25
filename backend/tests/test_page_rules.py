@@ -84,6 +84,30 @@ def test_third_party_domains_fires_only_past_threshold() -> None:
     assert "third_party_domains" not in _ids(PageSignals(third_party_domains=29))
 
 
+def test_popups_opened_fires_only_past_threshold() -> None:
+    assert "popups_opened" in _ids(PageSignals(popups_opened=2))
+    assert "popups_opened" not in _ids(PageSignals(popups_opened=1))
+    matches, _ = evaluate_page_rules(PageSignals(popups_opened=3))
+    assert matches[0].weight == 0.5
+    assert matches[0].category == "risky_site"
+    assert "3 ventanas" in matches[0].reason
+
+
+def test_forced_redirects_fires_on_count_ge_1() -> None:
+    matches, _ = evaluate_page_rules(PageSignals(forced_redirects=1))
+    assert matches[0].id == "forced_redirects"
+    assert matches[0].weight == 0.4
+    assert matches[0].category == "suspicious_domain"
+    assert "forced_redirects" not in _ids(PageSignals(forced_redirects=0))
+
+
+def test_notification_permission_granted_fires() -> None:
+    matches, _ = evaluate_page_rules(PageSignals(notification_permission_granted=True))
+    assert matches[0].id == "notification_permission_granted"
+    assert matches[0].weight == 0.35
+    assert matches[0].category == "risky_site"
+
+
 def test_tracker_cookies_is_info_only_never_a_scoring_match() -> None:
     matches, info = evaluate_page_rules(PageSignals(tracker_cookies=5))
     assert matches == []

@@ -73,9 +73,23 @@ export interface TextVerdict {
   urls: UrlVerdict[]
 }
 
+export interface ChatPageSignal {
+  id: string
+  reason: string
+}
+
 export interface ChatContext {
   level?: Level | null
   signals?: Signal[]
+  url?: string | null
+  category?: string | null
+  reasons?: string[]
+  page_signals?: ChatPageSignal[]
+}
+
+export interface ChatHistoryTurn {
+  role: 'user' | 'assistant'
+  text: string
 }
 
 /** Response of POST /api/chat */
@@ -108,6 +122,11 @@ export interface PageSignals {
   offsite_meta_refresh: boolean
   third_party_domains: number
   tracker_cookies: number
+  /** "Portero" (always-on, navigation-only behavior watcher) counters —
+   * see extension/behaviorWatcher.ts. Never derived from page content. */
+  popups_opened?: number
+  forced_redirects?: number
+  notification_permission_granted?: boolean
 }
 
 export interface PageSignal {

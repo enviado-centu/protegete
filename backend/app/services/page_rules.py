@@ -42,10 +42,30 @@ TRACKER_COOKIES_REASON = (
     "La página usa varias cookies de seguimiento publicitario; esto por sí solo no significa que sea maliciosa."
 )
 
+# "Portero" (always-on, navigation-only behavior watcher -- see
+# background.ts's behaviorWatcher.ts) rules: never derived from page
+# content, only from tab/navigation events.
+NOTIFICATION_PERMISSION_GRANTED_REASON = (
+    "Este sitio ya tiene permiso para mandarte notificaciones: podés quitárselo desde el "
+    "candado de la barra de direcciones."
+)
+
 # signals.<field> >= this count fires the corresponding rule (booleans/list
 # presence are checked directly, not through this threshold table).
 THIRD_PARTY_DOMAINS_THRESHOLD = 30
 TRACKER_COOKIES_THRESHOLD = 5
+POPUPS_OPENED_THRESHOLD = 2
+FORCED_REDIRECTS_THRESHOLD = 1
+
+
+def _popups_opened_reason(count: int) -> str:
+    return f"Este sitio abrió {count} ventanas o pestañas solo."
+
+
+def _forced_redirects_reason(count: int) -> str:
+    if count == 1:
+        return "Te redirigió a otro sitio sin que toques nada."
+    return f"Te redirigió {count} veces a otro sitio sin que toques nada."
 
 
 def evaluate_page_rules(signals: PageSignals) -> tuple[list[RuleMatch], list[PageSignal]]:
@@ -112,6 +132,33 @@ def evaluate_page_rules(signals: PageSignals) -> tuple[list[RuleMatch], list[Pag
                 weight=0.15,
                 category="risky_site",
                 reason=THIRD_PARTY_DOMAINS_REASON,
+            )
+        )
+    if signals.popups_opened >= POPUPS_OPENED_THRESHOLD:
+        matches.append(
+            RuleMatch(
+                id="popups_opened",
+                weight=0.5,
+                category="risky_site",
+                reason=_popups_opened_reason(signals.popups_opened),
+            )
+        )
+    if signals.forced_redirects >= FORCED_REDIRECTS_THRESHOLD:
+        matches.append(
+            RuleMatch(
+                id="forced_redirects",
+                weight=0.4,
+                category="suspicious_domain",
+                reason=_forced_redirects_reason(signals.forced_redirects),
+            )
+        )
+    if signals.notification_permission_granted:
+        matches.append(
+            RuleMatch(
+                id="notification_permission_granted",
+                weight=0.35,
+                category="risky_site",
+                reason=NOTIFICATION_PERMISSION_GRANTED_REASON,
             )
         )
 

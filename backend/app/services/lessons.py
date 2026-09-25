@@ -227,6 +227,9 @@ PAGE_RULE_TO_LESSON_ID: dict[str, str] = {
     "offsite_meta_refresh": "hidden_code",
     "insecure_password_form": "unsafe_forms",
     "cross_site_password_form": "unsafe_forms",
+    "popups_opened": "malicious_ads",
+    "forced_redirects": "hidden_code",
+    "notification_permission_granted": "malicious_ads",
 }
 
 

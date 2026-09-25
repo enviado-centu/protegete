@@ -2,6 +2,7 @@ import type {
   AnalyzePageResult,
   ChatAnswer,
   ChatContext,
+  ChatHistoryTurn,
   Lesson,
   PageSignals,
   TextVerdict,
@@ -85,6 +86,11 @@ export function getLessons(): Promise<Lesson[]> {
 export function askChat(
   message: string,
   context?: ChatContext | null,
+  history?: ChatHistoryTurn[],
 ): Promise<ChatAnswer> {
-  return post<ChatAnswer>('/api/chat', { message, context: context ?? null })
+  return post<ChatAnswer>('/api/chat', {
+    message,
+    context: context ?? null,
+    history: history ?? [],
+  })
 }
