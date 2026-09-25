@@ -227,16 +227,23 @@ no hay marca que imitar, así que las reglas de impersonation/estructura de
 URL no alcanzaban. Contraejemplo de sitio oficial que **no** se marca:
 `https://www.tycsports.com/envivo` sigue dando `safe` (whitelist).
 
-### Caso 7 — Página con código malicioso (inspección en vivo, Feature C)
+### Caso 7 — Página con código malicioso (inspección con consentimiento, Feature C)
 
 A diferencia de los casos 1-6 (que solo analizan la URL), este caso muestra
-la **inspección de la página en el navegador**: dos content scripts de la
-extensión (`page-probe-main.ts`, en el mundo JS de la página, y
-`page-probe.ts`, en el mundo aislado) detectan comportamiento malicioso que
-ninguna URL por sí sola revela -- minería de criptomonedas, publicidad
-maliciosa, código ofuscado, iframes escondidos -- y envían solo
-booleanos/contadores (nunca el HTML/JS de la página) a
-`POST /api/analyze-page` para enriquecer el veredicto base.
+la **inspección de la página en el navegador, con consentimiento explícito
+del usuario**: dos content scripts de la extensión (`page-probe-main.ts`,
+en el mundo JS de la página, y `page-probe.ts`, en el mundo aislado)
+detectan comportamiento malicioso que ninguna URL por sí sola revela --
+minería de criptomonedas, publicidad maliciosa, código ofuscado, iframes
+escondidos, pop-ups/redirecciones forzadas, permiso de notificaciones ya
+concedido -- y envían solo booleanos/contadores (nunca el HTML/JS de la
+página, ni el texto de formularios) a `POST /api/analyze-page` para
+enriquecer el veredicto base. **A diferencia de versiones anteriores de la
+demo, estos content scripts ya NO se inyectan automáticamente en cada
+sitio que visitás** (el manifest no declara `content_scripts` ni
+`<all_urls>`): solo corren después de que el usuario toca "Sí, revisar
+esta página" en la tarjeta de consentimiento del panel lateral. Ver
+"Consentimiento y privacidad" más abajo para el flujo completo.
 
 **Input:** `demo/pagina-maliciosa.html` (fixture local con un `<script
 src="https://popads.net/pop.js">` de una red de malvertising conocida, un
@@ -253,7 +260,11 @@ python -m http.server 8765
 ```
 
 Y abrir **http://localhost:8765/pagina-maliciosa.html** con la extensión
-cargada (ver "3. Extensión de Chrome" más arriba). A los ~3-4 segundos el
+cargada (ver "3. Extensión de Chrome" más arriba). Abrí el panel lateral:
+va a aparecer la tarjeta "🔍 ¿Querés que revise esta página a fondo?".
+Tocá **"Sí, revisar esta página"** -- Chrome muestra su propio diálogo
+nativo de permiso para el origen (`http://localhost:8765/*`); al aceptarlo,
+la extensión inyecta el probe una vez, sin recargar. A los ~3-4 segundos el
 ícono de la extensión pasa a `!` (peligro) y el panel lateral muestra:
 
 **Salida real observada** (badge + veredicto cacheado, leídos vía
@@ -276,6 +287,75 @@ localhost" se expande a las 4 razones + lección, y debajo aparece la
 sección plegable "🔍 Lo que encontramos en la página" con el mismo detalle
 -- separada de la tarjeta principal para distinguir "lo que dice la URL"
 de "lo que vimos al abrir la página".
+
+### Consentimiento y privacidad (flujo completo, Feature B)
+
+**El botero (siempre activo, sin leer la página).** Antes de cualquier
+consentimiento, la extensión ya cuenta -- solo con eventos de navegación
+del navegador (`chrome.webNavigation`, `chrome.tabs`), nunca leyendo el
+contenido de la página -- cuántas ventanas/pestañas abrió una pestaña sola
+(`popups_opened`) y cuántas redirecciones forzadas sufrió
+(`forced_redirects`). Estos dos contadores viven solo en
+`chrome.storage.session` (se borran al reiniciar el navegador) y se
+reinician en cada navegación nueva de esa pestaña.
+
+**Paso 1 -- pedir permiso.** El panel lateral muestra la tarjeta "🔍
+¿Querés que revise esta página a fondo?" con el texto exacto: *"Miro el
+código, los formularios, la publicidad y el texto que se ve. No guardo
+nada y nunca leo lo que escribís en formularios."* Dos botones: "Sí,
+revisar esta página" / "Ahora no", y un checkbox "Recordar para este
+sitio". Nada se lee hasta que el usuario toca "Sí" -- en ese momento (y
+solo en ese momento) se llama a `chrome.permissions.request` con el origen
+exacto de esa pestaña, mostrando el diálogo **nativo** del navegador (no
+uno nuestro) para ese permiso puntual.
+
+**Paso 2 -- escaneo inmediato, sin recargar.** Con el permiso otorgado, la
+extensión inyecta una vez los dos content scripts (`page-probe-main.js`
+mundo MAIN, `page-probe.js` mundo aislado) en la pestaña actual, recolecta
+las señales de página + hasta 5000 caracteres del **texto visible**
+(`document.body.innerText`, nunca el HTML/JS crudo, nunca valores de
+campos de formulario) y los envía a `/api/analyze-page` y
+`/api/analyze-text`; el resultado combinado (nivel más alto gana, razones
+sin duplicar) actualiza el badge, el veredicto y el contexto del chat.
+
+**Paso 3 -- oferta de recarga (opcional).** El panel ofrece: *"Para ver
+qué hace al abrirse (pop-ups, pedidos de notificaciones), la recargo una
+vez con la revisión activa. ¿Dale?"* -- esto registra el mismo probe de
+forma persistente solo para ese origen (`chrome.scripting
+.registerContentScripts`) y recarga la pestaña una vez, para capturar
+comportamiento que solo pasa al cargar la página (pop-ups automáticos,
+pedidos de notificación). Si el usuario **no** marcó "Recordar para este
+sitio", la extensión desregistra el probe ~6 segundos después de esa única
+recarga -- el sitio vuelve a comportarse como cualquier otro sitio no
+revisado. Si lo marcó, el sitio queda en la lista "Sitios que reviso
+siempre" (configuración del panel, con botón "Quitar" por sitio) y se
+revisa automáticamente en cada visita futura, sin volver a preguntar.
+
+**Revisión de pantalla (opcional, Feature B.4).** Una vez escaneada la
+página, aparece el botón "📸 Revisar también lo que se ve": captura la
+pestaña visible (`chrome.tabs.captureVisibleTab`), hace OCR **en el propio
+navegador** (tesseract.js -- la imagen nunca sale del dispositivo) y
+analiza el texto extraído, agregando las razones con el prefijo "En la
+pantalla: …" al veredicto. Útil para publicidades/pop-ups con texto
+engañoso que no está en el DOM analizable directamente.
+
+**Lo que nunca leemos, en ningún paso:** el HTML/JS crudo de la página,
+valores de campos de formulario (ni siquiera de formularios sin
+contraseña), cookies (solo se cuenta cuántas parecen ser de tracking, no
+sus valores), ni la imagen de un screenshot (solo el texto que el OCR
+extrae de ella, en el dispositivo).
+
+**Pregunta del jurado: "¿Cómo respetan la privacidad?"** Nada se lee sin
+que el usuario lo pida explícitamente sitio por sitio (no hay
+`content_scripts` automáticos ni `<all_urls>` en el manifest desde esta
+versión); el permiso lo otorga el diálogo **nativo** del navegador, no uno
+nuestro; lo que se envía al backend son booleanos/contadores y hasta 5000
+caracteres de texto *visible* (nunca HTML, scripts, ni campos de
+formulario); el conteo de pop-ups/redirecciones usa solo eventos de
+navegación, nunca contenido; el screenshot se procesa con OCR en el propio
+dispositivo y solo el texto extraído viaja a la red; y todo permiso es
+revocable en cualquier momento -- ya sea quitando el sitio de "Sitios que
+reviso siempre", o desde el candado de la barra de direcciones de Chrome.
 
 ### Pregunta libre para el chat (capa B / LLM)
 

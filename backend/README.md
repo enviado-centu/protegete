@@ -327,11 +327,31 @@ curl -s localhost:8000/api/lessons
 ### `POST /api/chat`
 
 Layer B: a grounded LLM answer via Ollama, additive to layer A above. The
-LLM never decides risk -- it only rephrases the `level` and `signals` it is
-given (or, with no context, the lessons closest to the question) and always
-ends with one concrete tip. Request `{ "message": "...", "context": { "level":
-"danger", "signals": [{"id": "credential_request", "evidence": "..."}] } |
-null }` (`message` 1-2000 chars, non-blank, else 422; `context` optional).
+LLM never decides risk -- it only rephrases the evidence it is given (or,
+with no context, the lessons closest to the question) and always ends with
+one concrete tip taken from that evidence. Request:
+
+```json
+{
+  "message": "...",
+  "context": {
+    "level": "danger",
+    "category": "impersonation",
+    "url": "http://bna-verificacion.xyz",
+    "reasons": ["El sitio imita a un banco pero no es su dirección oficial."],
+    "signals": [{"id": "credential_request", "evidence": "..."}],
+    "page_signals": [{"id": "popups", "reason": "..."}]
+  },
+  "history": [{"role": "user", "text": "..."}, {"role": "assistant", "text": "..."}]
+}
+```
+
+`message` (1-2000 chars, non-blank, else 422), `context` (optional; `url`/
+`category` optional strings, `reasons` up to 12 entries of up to 300 chars
+each, `page_signals` up to 20 entries) and `history` (optional, up to 6
+prior turns of up to 600 chars each, used as short-term memory for
+follow-up questions) are all bounded so a pathological payload can't blow
+up the prompt.
 
 ```bash
 curl -s -X POST localhost:8000/api/chat \
@@ -353,7 +373,18 @@ than `OLLAMA_TIMEOUT_S` (default 8s), the endpoint still answers `200` with:
 { "answer": null, "fallback": true }
 ```
 
-No message content, URL or verdict is ever logged or persisted.
+**Grounding guard (`app.services.llm.is_grounded`):** after Ollama
+responds, the answer is checked for any capitalized brand/company/service
+name that isn't backed by the given evidence (`url`/`category`/`reasons`/
+`signals`/`page_signals`), our own lesson copy, an official brand from the
+motor whitelist, or a small list of well-known global brands (WhatsApp,
+Google, Mercado Pago, etc.). An ungrounded answer (e.g. inventing a
+recommended streaming service that was never part of the evidence) is
+treated the same as any other failure -- `{"answer": null, "fallback":
+true}` -- so layer A always stands on its own rather than showing a
+hallucinated answer.
+
+No message content, URL, verdict or history is ever logged or persisted.
 
 ### `POST /api/analyze-page`
 
@@ -377,10 +408,25 @@ Request:
     "popups": 0,
     "offsite_meta_refresh": false,
     "third_party_domains": 2,
-    "tracker_cookies": 0
+    "tracker_cookies": 0,
+    "popups_opened": 0,
+    "forced_redirects": 0,
+    "notification_permission_granted": false
   }
 }
 ```
+
+`popups_opened`, `forced_redirects` and `notification_permission_granted`
+come from the extension's always-on "portero" behavior watcher
+(`frontend/src/extension/behaviorWatcher.ts`) -- counted purely from
+`chrome.webNavigation`/`chrome.tabs` events (new tabs a page opened, forced
+client/server redirects on its own navigation), never from page content,
+and only ever sent to this endpoint after the user has explicitly
+consented to scan that page (see `DEMO.md`'s "Consentimiento y
+privacidad"). Rules: `popups_opened >= 2` (weight 0.5, risky_site),
+`forced_redirects >= 1` (weight 0.4, suspicious_domain),
+`notification_permission_granted` (weight 0.35, risky_site) --
+`app/services/page_rules.py`.
 
 Response extends `/api/analyze`'s shape with `page_signals` (fired
 page-level red flags, scoring or info-only, each `{id, reason}`) and

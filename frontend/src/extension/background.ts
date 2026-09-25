@@ -246,7 +246,13 @@ void wireToolbarIcon()
 // Exposed on the service worker's global scope (not importable from outside
 // the module graph) so E2E tooling can drive it directly via
 // `serviceWorker.evaluate(() => self.handleTabUrl(tabId, url))` without a
-// real (DNS-dependent) tab navigation.
+// real (DNS-dependent) tab navigation, and similarly for the "portero"
+// counters, which real chrome.webNavigation/chrome.tabs events are hard to
+// synthesize precisely in browser automation.
 if (typeof self !== 'undefined') {
-  ;(self as unknown as { handleTabUrl: typeof handleTabUrl }).handleTabUrl = handleTabUrl
+  Object.assign(self as unknown as Record<string, unknown>, {
+    handleTabUrl,
+    notePopupFromOpener,
+    noteTopLevelCommit,
+  })
 }
