@@ -1,7 +1,7 @@
 # Guía de demo — Protegete
 
 Guía rápida para levantar el proyecto y mostrarlo en vivo: backend, PWA y
-extensión de Chrome (y la PWA desde el celular), con 8 casos de prueba y sus respuestas reales.
+extensión de Chrome (y la PWA desde el celular), con 9 casos de prueba y sus respuestas reales.
 
 ## Requisitos
 
@@ -96,7 +96,7 @@ La extensión no cambia: sigue llamando a `http://localhost:8000`.
    está activo). Si falla, la demo sigue: el chat solo pierde la respuesta
    conversacional adicional (capa B), no el veredicto principal (capa A).
 
-## 8 casos de demo
+## 9 casos de demo
 
 Todos los casos fueron ejecutados contra el backend real (no simulados)
 el 2026-09-24.
@@ -333,6 +333,30 @@ ese camino.
 QR que no son links (Wi-Fi, teléfono, contacto) se describen en el chat
 sin enviarse al backend.
 
+### Caso 9 — "¿Ya caíste? Qué hacer ahora"
+
+Protegete no solo avisa **antes** de caer: también acompaña **después**.
+
+**Input A (en el chat):** `ya puse mis datos en un link del banco`
+
+Respuesta inmediata, sin LLM y sin llamar al análisis: *"Tranqui,
+actuemos rápido. Hacé esto ahora, en este orden:"* + la tarjeta 🆘 "¿Ya
+caíste? Qué hacer ahora" desplegada: llamar al banco al número que figura
+atrás de la tarjeta (nunca a uno que llegó por mensaje) y bloquear todo,
+cambiar claves empezando por el mail con doble verificación, avisar si se
+pasó un código y cerrar sesiones, guardar capturas como prueba, denunciar
+en comisaría o fiscalía y, si se perdió plata, reclamar ante el BCRA en
+usuariosfinancieros.gob.ar.
+
+También se dispara con variantes como "me estafaron", "caí en una estafa",
+"me robaron el WhatsApp", "les pasé el código", "ya hice la transferencia"
+o "me hackearon" (sin importar tildes ni mayúsculas).
+
+**Input B (desde un veredicto):** analizar el link del caso 1. Debajo del
+veredicto ⛔ Peligroso aparece el botón *"¿Ya pusiste tus datos? Qué hacer
+ahora"*; al tocarlo, se muestra la misma guía. Funciona igual en la PWA y
+en el panel de la extensión.
+
 ### Consentimiento y privacidad (flujo completo, Feature B)
 
 **El botero (siempre activo, sin leer la página).** Antes de cualquier
@@ -565,3 +589,9 @@ abrir el link, y muestra el veredicto antes de que el usuario entre.
 propio navegador (jsQR, empaquetado en la app, sin CDN); solo el texto
 decodificado va al backend, igual que si el usuario lo hubiera pegado. La
 cámara se apaga apenas se lee el código o se cierra el diálogo.
+
+**¿Y si la persona ya cayó?** La app no se queda en "era peligroso".
+Detecta frases como "ya puse mis datos" o "me estafaron" y responde al
+instante con pasos ordenados y concretos: bloquear la tarjeta con el
+número oficial, cambiar claves, guardar pruebas, denunciar y reclamar ante
+el BCRA. Es respuesta determinística, no depende del LLM.
