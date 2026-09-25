@@ -12,6 +12,12 @@ export interface ComposerProps {
   onSend: (text: string) => void
   onImage: (file: Blob) => void
   disabled?: boolean
+  /** Shows the "Escanear código QR" button (PWA only — the extension side
+   * panel can't reliably use the camera, see qr-and-phone-scanning task). */
+  enableQrScan?: boolean
+  /** Opens the live camera QR scanner dialog. Required when `enableQrScan`
+   * is true. */
+  onOpenScanner?: () => void
 }
 
 const MAX_ROWS = 4
@@ -21,7 +27,15 @@ const FALLBACK_LINE_HEIGHT = 24
  * paste of images, and an image picker). The textarea auto-grows from one
  * line up to `MAX_ROWS` and never shows a manual resize handle, so it works
  * cleanly from 300px-wide panels up (no drag handle, no layout jump). */
-export function Composer({ value, onChange, onSend, onImage, disabled }: ComposerProps) {
+export function Composer({
+  value,
+  onChange,
+  onSend,
+  onImage,
+  disabled,
+  enableQrScan,
+  onOpenScanner,
+}: ComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -124,6 +138,17 @@ export function Composer({ value, onChange, onSend, onImage, disabled }: Compose
         className="visually-hidden"
         onChange={handleFileChange}
       />
+      {enableQrScan && (
+        <button
+          type="button"
+          className="composer__icon-btn"
+          aria-label="Escanear código QR"
+          onClick={onOpenScanner}
+          disabled={disabled}
+        >
+          <span aria-hidden="true">🔳</span>
+        </button>
+      )}
       <button
         type="submit"
         className="composer__send-btn"

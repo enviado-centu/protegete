@@ -7,13 +7,15 @@ import {
   askChat,
   getLessons,
 } from '../api'
-import { buildReplyA, classifyInput, matchLessons } from '../chatEngine'
+import { buildReplyA, classifyInput, matchLessons, type InputKind, type Reply } from '../chatEngine'
 import { extractText } from '../ocr'
+import { decodeQrFromImage } from '../qr'
 import { newId } from '../id'
 import type { ChatContext, ChatHistoryTurn, Lesson, TextVerdict, UrlVerdict } from '../types'
 import type { ChatMessage } from './chatMessage'
 import { MessageBubble } from './MessageBubble'
 import { Composer } from './Composer'
+import { QrScanner } from './QrScanner'
 
 export interface ChatProps {
   initialMessages?: ChatMessage[]
@@ -30,6 +32,10 @@ export interface ChatProps {
    * and re-seeds `lastContext` from the new `initialContext`, so an old
    * page's evidence never leaks into a new page's answers. */
   contextKey?: string
+  /** Shows the composer's "Escanear código QR" camera button and dialog.
+   * PWA only — the extension side panel can't reliably use the camera, so
+   * it leaves this unset and only gets QR-from-image (see `handleImage`). */
+  enableQrScan?: boolean
 }
 
 const MAX_HISTORY_TURNS = 6
@@ -91,6 +97,62 @@ const INVALID_MESSAGE = 'Ese mensaje no lo pude leer, ¿podés reformularlo?'
 const EMPTY_IMAGE_MESSAGE = 'No encontré texto en la imagen.'
 const OCR_FAILED_MESSAGE = 'No pude leer la imagen. Probá con otra captura o pegá el texto.'
 
+// Quishing = phishing delivered via a QR code (scammers paste a fake QR
+// sticker over a real one on a poster, table tent or invoice). Every
+// non-safe verdict that came from a scanned QR gets this extra sentence and
+// the fake_qr lesson, on top of its normal reasons/lessons.
+const QUISHING_WARNING =
+  'Ojo: este enlace vino de un código QR. Los estafadores pegan QR falsos sobre carteles, mesas o facturas.'
+const QR_NOT_FOUND_MESSAGE =
+  'No encontramos un código QR en esa foto. Probá con otra imagen o pegá el link directamente.'
+const QR_EMPTY_MESSAGE = 'El código QR no tenía contenido para analizar.'
+
+// Content types a QR code can carry besides a URL or plain text: these are
+// shown as a short descriptive message instead of being sent to the
+// analyze pipeline (spec: no backend call needed for them).
+const QR_INFO_RE = /^(wifi:|tel:|begin:vcard|mailto:|smsto:)/i
+
+type QrContentKind = 'url' | 'info' | 'text'
+
+function classifyQrContent(content: string): QrContentKind {
+  if (QR_INFO_RE.test(content)) return 'info'
+  return classifyInput(content) === 'url' ? 'url' : 'text'
+}
+
+function describeQrInfo(content: string): string {
+  if (/^wifi:/i.test(content)) {
+    return 'Este código QR tiene los datos de una red Wi-Fi. Fijate que sea una red que reconocés antes de conectarte.'
+  }
+  if (/^tel:/i.test(content)) {
+    return 'Este código QR abre una llamada telefónica. Fijate que el número sea de quien dice ser antes de llamar.'
+  }
+  if (/^begin:vcard/i.test(content)) {
+    return 'Este código QR tiene un contacto para guardar. Revisá los datos antes de agregarlo a tu agenda.'
+  }
+  if (/^mailto:/i.test(content)) {
+    return 'Este código QR abre un correo para enviar. Fijate a quién se lo vas a mandar antes de enviarlo.'
+  }
+  return 'Este código QR envía un mensaje de texto. Fijate a qué número antes de enviarlo.'
+}
+
+function withFakeQrLesson(lessons: Lesson[], catalog: Lesson[]): Lesson[] {
+  if (lessons.some((lesson) => lesson.id === 'fake_qr')) return lessons
+  const fakeQr = catalog.find((lesson) => lesson.id === 'fake_qr')
+  return fakeQr ? [...lessons, fakeQr] : lessons
+}
+
+/** Decorates a layer-A reply with the quishing warning + fake_qr lesson,
+ * but only when the content came from a scanned QR AND the verdict isn't
+ * safe (a safe QR needs no extra warning). */
+function decorateQrReply(reply: Reply, qrOrigin: boolean | undefined, catalog: Lesson[]): Reply {
+  if (!qrOrigin || reply.level === 'safe') return reply
+  return {
+    ...reply,
+    reasons: [...reply.reasons, QUISHING_WARNING],
+    lessons: withFakeQrLesson(reply.lessons, catalog),
+  }
+}
+
 /**
  * The one shared teaching chat: classifies input, calls layer A
  * (deterministic backend analysis) and, in parallel, layer B (`/api/chat`,
@@ -101,6 +163,7 @@ export function Chat({
   onHasMessagesChange,
   initialContext = null,
   contextKey,
+  enableQrScan = false,
 }: ChatProps) {
   const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [draft, setDraft] = useState('')
@@ -109,6 +172,7 @@ export function Chat({
   const [history, setHistory] = useState<ChatHistoryTurn[]>([])
   const [busy, setBusy] = useState(false)
   const [busyPhase, setBusyPhase] = useState<BusyPhase>(null)
+  const [scannerOpen, setScannerOpen] = useState(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // The tab/page changed (or a fresh verdict for it arrived): re-seed the
@@ -179,9 +243,12 @@ export function Chat({
     }
   }
 
-  async function runAnalysis(text: string) {
+  async function runAnalysis(
+    text: string,
+    options?: { qrOrigin?: boolean; forceKind?: InputKind },
+  ) {
     setBusyPhase('analyzing')
-    const kind = classifyInput(text)
+    const kind = options?.forceKind ?? classifyInput(text)
 
     if (kind === 'question') {
       await runQuestion(text)
@@ -193,13 +260,13 @@ export function Chat({
     try {
       if (kind === 'url') {
         const verdict = await analyzeUrl(text)
-        const reply = buildReplyA(verdict, lessonsCatalog)
+        const reply = decorateQrReply(buildReplyA(verdict, lessonsCatalog), options?.qrOrigin, lessonsCatalog)
         context = contextFromUrlVerdict(verdict)
         setLastContext(context)
         append({ id: newId(), role: 'assistantA', reply })
       } else {
         const verdict = await analyzeText(text)
-        const reply = buildReplyA(verdict, lessonsCatalog)
+        const reply = decorateQrReply(buildReplyA(verdict, lessonsCatalog), options?.qrOrigin, lessonsCatalog)
         context = contextFromTextVerdict(verdict)
         setLastContext(context)
         append({ id: newId(), role: 'assistantA', reply })
@@ -242,12 +309,76 @@ export function Chat({
     }
   }
 
-  async function handleImage(file: Blob) {
+  /** Given already-decoded QR content, appends the user bubble and routes
+   * it: a URL/plain-text payload goes through the normal analyze pipeline
+   * (decorated with the quishing warning on a non-safe verdict); a
+   * structured payload (wifi/tel/vcard/mailto/sms) gets a short descriptive
+   * message instead, with no backend call. Callers own the busy state. */
+  async function handleQrDecoded(content: string) {
+    const trimmed = content.trim()
+    if (!trimmed) {
+      append({ id: newId(), role: 'system', text: QR_EMPTY_MESSAGE })
+      return
+    }
+    append({ id: newId(), role: 'user', text: `📷 QR: ${trimmed}` })
+    const kind = classifyQrContent(trimmed)
+    if (kind === 'info') {
+      append({ id: newId(), role: 'system', text: describeQrInfo(trimmed) })
+      return
+    }
+    await runAnalysis(trimmed, { qrOrigin: true, forceKind: kind })
+  }
+
+  /** Called by the QrScanner dialog after a successful live camera scan. */
+  async function handleQrScanResult(content: string) {
+    setScannerOpen(false)
     if (busy) return
-    append({ id: newId(), role: 'user', text: '🖼️ Imagen enviada' })
+    setBusy(true)
+    try {
+      await handleQrDecoded(content)
+    } finally {
+      setBusy(false)
+      setBusyPhase(null)
+    }
+  }
+
+  /** Called by the QrScanner dialog's own "Subir foto del QR" fallback
+   * button (distinct from the composer's general image picker below): the
+   * user explicitly said this photo is of a QR, so a decode miss is
+   * reported as "no QR found" rather than silently falling back to OCR. */
+  async function handleQrFallbackImage(file: Blob) {
+    setScannerOpen(false)
+    if (busy) return
     setBusy(true)
     setBusyPhase('ocr')
     try {
+      const content = await decodeQrFromImage(file)
+      if (content) {
+        await handleQrDecoded(content)
+      } else {
+        append({ id: newId(), role: 'system', text: QR_NOT_FOUND_MESSAGE })
+      }
+    } finally {
+      setBusy(false)
+      setBusyPhase(null)
+    }
+  }
+
+  async function handleImage(file: Blob) {
+    if (busy) return
+    setBusy(true)
+    setBusyPhase('ocr')
+    try {
+      // The composer's image picker/paste is shared by OCR and QR-from-image
+      // (PWA + extension both get QR-from-image, spec §T9-4): try decoding a
+      // QR first, and only fall back to OCR when the picture isn't a QR.
+      const qrContent = await decodeQrFromImage(file)
+      if (qrContent) {
+        await handleQrDecoded(qrContent)
+        return
+      }
+
+      append({ id: newId(), role: 'user', text: '🖼️ Imagen enviada' })
       let text: string
       try {
         text = await extractText(file)
@@ -305,7 +436,16 @@ export function Chat({
         onSend={handleSend}
         onImage={handleImage}
         disabled={busy}
+        enableQrScan={enableQrScan}
+        onOpenScanner={() => setScannerOpen(true)}
       />
+      {scannerOpen && (
+        <QrScanner
+          onResult={handleQrScanResult}
+          onClose={() => setScannerOpen(false)}
+          onFallbackImage={handleQrFallbackImage}
+        />
+      )}
     </div>
   )
 }

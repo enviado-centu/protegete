@@ -19,7 +19,7 @@ export default function App() {
         <TextSizeToggle />
       </header>
       <main className="app__main">
-        <Chat />
+        <Chat enableQrScan />
       </main>
     </div>
   )

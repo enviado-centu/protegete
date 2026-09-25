@@ -1,13 +1,15 @@
-import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { render, screen, waitForElementToBeRemoved } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { render, screen, waitFor, waitForElementToBeRemoved } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Chat } from './Chat'
 import * as api from '../api'
 import * as ocr from '../ocr'
+import * as qr from '../qr'
 import type { ChatContext } from '../types'
 
 vi.mock('../api')
 vi.mock('../ocr')
+vi.mock('../qr', () => ({ decodeQrFromImage: vi.fn(), startQrScanner: vi.fn() }))
 
 function typeAndSend(input: HTMLElement, text: string) {
   const user = userEvent.setup()
@@ -33,6 +35,7 @@ describe('Chat', () => {
   beforeEach(() => {
     vi.mocked(api.getLessons).mockResolvedValue([])
     vi.mocked(api.askChat).mockResolvedValue({ answer: null, fallback: true })
+    vi.mocked(qr.decodeQrFromImage).mockResolvedValue(null)
   })
 
   test('backend unreachable shows a friendly error and keeps the typed text', async () => {
@@ -308,5 +311,162 @@ describe('Chat', () => {
       { role: 'user', text: '¿por qué es peligroso?' },
       { role: 'assistant', text: 'Porque está en una lista negra.' },
     ])
+  })
+})
+
+describe('Chat QR scanning', () => {
+  let originalMediaDevices: typeof navigator.mediaDevices
+
+  beforeEach(() => {
+    // The api/ocr/qr modules are mocked once for the whole file (no
+    // clearMocks in vite.config.ts), so this describe's own assertions like
+    // `.not.toHaveBeenCalled()` need a clean call history per test.
+    vi.clearAllMocks()
+    vi.mocked(api.getLessons).mockResolvedValue([
+      {
+        id: 'fake_qr',
+        icon: '🔲',
+        title: 'Códigos QR falsos',
+        how_to_spot: 'x',
+        example: 'y',
+        what_to_do: 'z',
+      },
+    ])
+    vi.mocked(api.askChat).mockResolvedValue({ answer: null, fallback: true })
+    vi.mocked(qr.decodeQrFromImage).mockResolvedValue(null)
+    originalMediaDevices = navigator.mediaDevices
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: {
+        getUserMedia: vi.fn(() =>
+          Promise.resolve({ getTracks: () => [] } as unknown as MediaStream),
+        ),
+      },
+      configurable: true,
+    })
+    Object.defineProperty(window, 'isSecureContext', { value: true, configurable: true })
+    vi.mocked(qr.startQrScanner).mockReturnValue(vi.fn())
+  })
+
+  afterEach(() => {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      value: originalMediaDevices,
+      configurable: true,
+    })
+  })
+
+  function safeUrlVerdict() {
+    return {
+      url: 'https://mercadopago.com.ar',
+      level: 'safe' as const,
+      score: 0,
+      category: 'none' as const,
+      reasons: [],
+      tip: 'Todo bien.',
+      ml: { probability: 0, threshold: 0.5, flagged: false, top_features: [] },
+      rules: [],
+      details: { blacklist: false, whitelist: true, ml_probability: 0, reputation: 'clean' as const },
+    }
+  }
+
+  function dangerUrlVerdict() {
+    return {
+      url: 'http://bna-homebanking-verificar.xyz',
+      level: 'danger' as const,
+      score: 0.9,
+      category: 'suspicious_domain' as const,
+      reasons: ['El sitio imita a un banco pero no es su dirección oficial.'],
+      tip: 'No ingreses tus datos ahí.',
+      ml: { probability: 0.9, threshold: 0.5, flagged: true, top_features: [] },
+      rules: [{ id: 'fake_domain', weight: 0.5 }],
+      details: { blacklist: false, whitelist: false, ml_probability: 0.9, reputation: 'unavailable' as const },
+    }
+  }
+
+  async function openScannerAndDeliver(content: string) {
+    const callsBefore = vi.mocked(qr.startQrScanner).mock.calls.length
+    render(<Chat enableQrScan />)
+    await userEvent.click(screen.getByRole('button', { name: /escanear código qr/i }))
+    await waitFor(() =>
+      expect(vi.mocked(qr.startQrScanner).mock.calls.length).toBeGreaterThan(callsBefore),
+    )
+    const onResult = vi.mocked(qr.startQrScanner).mock.calls[callsBefore][1]
+    onResult(content)
+  }
+
+  test('the QR button is visible when enableQrScan is set (PWA)', () => {
+    render(<Chat enableQrScan />)
+    expect(screen.getByRole('button', { name: /escanear código qr/i })).toBeInTheDocument()
+  })
+
+  test('the QR button is absent by default (extension side panel)', () => {
+    render(<Chat />)
+    expect(screen.queryByRole('button', { name: /escanear código qr/i })).not.toBeInTheDocument()
+  })
+
+  test('a URL QR runs the URL analysis and adds the quishing sentence + fake_qr lesson on a non-safe verdict', async () => {
+    vi.mocked(api.analyzeUrl).mockResolvedValue(dangerUrlVerdict())
+    await openScannerAndDeliver('http://bna-homebanking-verificar.xyz')
+
+    expect(await screen.findByText('Peligroso')).toBeInTheDocument()
+    expect(api.analyzeUrl).toHaveBeenCalledWith('http://bna-homebanking-verificar.xyz')
+    expect(await screen.findByText(/vino de un código qr/i)).toBeInTheDocument()
+    expect(await screen.findByText('Códigos QR falsos')).toBeInTheDocument()
+  })
+
+  test('a URL QR with a safe verdict shows no quishing sentence', async () => {
+    vi.mocked(api.analyzeUrl).mockResolvedValue(safeUrlVerdict())
+    await openScannerAndDeliver('https://mercadopago.com.ar')
+
+    expect(await screen.findByText('Parece seguro')).toBeInTheDocument()
+    expect(screen.queryByText(/vino de un código qr/i)).not.toBeInTheDocument()
+  })
+
+  test('a wifi QR shows a descriptive message with no backend call', async () => {
+    await openScannerAndDeliver('WIFI:T:WPA;S:MiRed;P:clave123;;')
+
+    expect(await screen.findByText(/red wi-fi/i)).toBeInTheDocument()
+    expect(api.analyzeUrl).not.toHaveBeenCalled()
+    expect(api.analyzeText).not.toHaveBeenCalled()
+  })
+
+  test('a tel QR shows a descriptive message with no backend call', async () => {
+    await openScannerAndDeliver('tel:+541122334455')
+
+    expect(await screen.findByText(/llamada telefónica/i)).toBeInTheDocument()
+    expect(api.analyzeUrl).not.toHaveBeenCalled()
+    expect(api.analyzeText).not.toHaveBeenCalled()
+  })
+
+  test('uploading an image containing a QR takes the QR path, not OCR', async () => {
+    vi.mocked(qr.decodeQrFromImage).mockResolvedValue('https://mercadopago.com.ar')
+    vi.mocked(api.analyzeUrl).mockResolvedValue(safeUrlVerdict())
+    const { container } = render(<Chat />)
+    const input = container.querySelector('input[type=file]') as HTMLInputElement
+    await userEvent.upload(input, new File(['x'], 'qr.png', { type: 'image/png' }))
+
+    expect(await screen.findByText('Parece seguro')).toBeInTheDocument()
+    expect(ocr.extractText).not.toHaveBeenCalled()
+    expect(api.analyzeUrl).toHaveBeenCalledWith('https://mercadopago.com.ar')
+  })
+
+  test('uploading an image without a QR falls back to OCR', async () => {
+    vi.mocked(qr.decodeQrFromImage).mockResolvedValue(null)
+    vi.mocked(ocr.extractText).mockResolvedValue('cuenta suspendida, ingresá tu clave ya')
+    vi.mocked(api.analyzeText).mockResolvedValue({
+      level: 'safe',
+      score: 0,
+      category: 'none',
+      reasons: [],
+      tip: 'Todo bien.',
+      signals: [],
+      lessons: [],
+      urls: [],
+    })
+    const { container } = render(<Chat />)
+    const input = container.querySelector('input[type=file]') as HTMLInputElement
+    await userEvent.upload(input, new File(['x'], 'shot.png', { type: 'image/png' }))
+
+    expect(await screen.findByText('Parece seguro')).toBeInTheDocument()
+    expect(ocr.extractText).toHaveBeenCalled()
   })
 })
