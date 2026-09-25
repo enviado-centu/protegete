@@ -10,6 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import get_extra_cors_origins
 from app.schemas import (
+    AnalyzePageRequest,
+    AnalyzePageResponse,
     AnalyzeRequest,
     AnalyzeResponse,
     AnalyzeTextRequest,
@@ -22,6 +24,7 @@ from app.services import llm
 from app.services.analyzer import analyze
 from app.services.lessons import Lesson, all_lessons
 from app.services.ml_model import get_model
+from app.services.page_analyzer import analyze_page
 from app.services.text_analyzer import analyze_text
 
 # Browser-extension origins are opaque per-install IDs, and local dev servers
@@ -65,6 +68,14 @@ def analyze_text_endpoint(payload: AnalyzeTextRequest) -> AnalyzeTextResponse:
     # Privacy: the analyzed message is never logged or persisted anywhere.
     model = get_model()
     return analyze_text(payload.text, model)
+
+
+@app.post("/api/analyze-page", response_model=AnalyzePageResponse)
+def analyze_page_endpoint(payload: AnalyzePageRequest) -> AnalyzePageResponse:
+    # Privacy: the analyzed URL and page signals (booleans/counts only,
+    # never page content) are never logged or persisted anywhere.
+    model = get_model()
+    return analyze_page(payload.url, payload.signals, model)
 
 
 @app.get("/api/lessons", response_model=list[Lesson])

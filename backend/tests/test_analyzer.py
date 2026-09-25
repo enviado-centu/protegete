@@ -116,6 +116,22 @@ def test_blacklist_hit_short_circuits_to_danger(fake_model) -> None:
     assert result.details.blacklist is True
 
 
+def test_urlhaus_feed_hit_yields_danger_malicious(fake_model, tmp_path, monkeypatch) -> None:
+    from app.services import feeds
+
+    feed_path = tmp_path / "urlhaus.txt"
+    feed_path.write_text("http://malware-distro.example/drop.exe\n", encoding="utf-8")
+    monkeypatch.setattr(feeds, "_feed_path", lambda: feed_path)
+    feeds.reload()
+    try:
+        fake_model._probability = 0.0  # even a confidently-safe ML score is overridden
+        result = analyze("http://malware-distro.example/other-page", fake_model)
+        assert result.level == "danger"
+        assert result.category == "malicious"
+    finally:
+        feeds.reload()
+
+
 def test_details_block_reflects_whitelist_and_ml_probability(fake_model) -> None:
     fake_model._probability = 0.741
     result = analyze("https://docs.google.com/document", fake_model)

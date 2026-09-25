@@ -42,7 +42,7 @@ from dataclasses import dataclass
 
 import tldextract
 
-from app.services import motor_adapter
+from app.services import feeds, motor_adapter
 from app.services.urlinfo import UrlInfo, parse_url
 
 _extractor = tldextract.TLDExtract(suffix_list_urls=())
@@ -478,6 +478,25 @@ def _evaluate_blacklist(url: str) -> RuleMatch | None:
     return RuleMatch(id="blacklisted", weight=1.0, category=BLACKLISTED_CATEGORY, reason=reason)
 
 
+MALWARE_HOST_REASON = (
+    "Este sitio figura en una lista pública de sitios que distribuyen virus (URLhaus)."
+)
+
+
+def _evaluate_malware_host(url: str) -> RuleMatch | None:
+    """URLhaus malware-URL feed match (Feature B). See `app.services.feeds`.
+
+    Mirrors `_evaluate_blacklist`'s shape, but does NOT short-circuit the
+    rest of `evaluate_rules` -- its RuleMatch is appended like any other
+    non-blacklist rule; it still dominates scoring via max(rule weights)
+    since weight=1.0, same as how "reputation_flagged" already works in
+    analyzer.py.
+    """
+    if feeds.is_urlhaus_match(url):
+        return RuleMatch(id="malware_host", weight=1.0, category="malicious", reason=MALWARE_HOST_REASON)
+    return None
+
+
 def _map_motor_signal(signal: motor_adapter.MotorSignal) -> RuleMatch | None:
     mapping = _MOTOR_SIGNAL_MAP.get(signal.id)
     if mapping is None:
@@ -503,6 +522,12 @@ def evaluate_rules(url: str) -> list[RuleMatch]:
     info = parse_url(url)
     hits: list[RuleMatch] = []
     whitelisted = is_whitelisted(info)
+
+    if not whitelisted:
+        malware_host = _evaluate_malware_host(url)
+        if malware_host is not None:
+            hits.append(malware_host)
+
     motor_signals = motor_adapter.evaluate_signals(url)
     motor_host_brand = next((s for s in motor_signals if s.id in _MOTOR_HOST_BRAND_SIGNAL_IDS), None)
 

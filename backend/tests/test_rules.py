@@ -298,6 +298,49 @@ class TestBlacklist:
         assert "blacklisted" not in _ids("https://example.com")
 
 
+class TestMalwareHostFeed:
+    """URLhaus malware feed rule (`malware_host`, Feature B)."""
+
+    def test_host_in_feed_fires_malware_host(self, tmp_path, monkeypatch) -> None:
+        from app.services import feeds
+
+        feed_path = tmp_path / "urlhaus.txt"
+        feed_path.write_text("http://evil-malware-host.example/payload.exe\n", encoding="utf-8")
+        monkeypatch.setattr(feeds, "_feed_path", lambda: feed_path)
+        feeds.reload()
+        try:
+            hits = {h.id: h for h in evaluate_rules("http://evil-malware-host.example/other-page")}
+            assert "malware_host" in hits
+            assert hits["malware_host"].weight == 1.0
+            assert hits["malware_host"].category == "malicious"
+        finally:
+            feeds.reload()
+
+    def test_whitelisted_domain_does_not_fire_even_if_in_feed(self, tmp_path, monkeypatch) -> None:
+        from app.services import feeds
+
+        feed_path = tmp_path / "urlhaus.txt"
+        feed_path.write_text("http://mercadopago.com.ar/payload.exe\n", encoding="utf-8")
+        monkeypatch.setattr(feeds, "_feed_path", lambda: feed_path)
+        feeds.reload()
+        try:
+            assert "malware_host" not in _ids("https://www.mercadopago.com.ar")
+        finally:
+            feeds.reload()
+
+    def test_host_absent_from_feed_does_not_fire(self, tmp_path, monkeypatch) -> None:
+        from app.services import feeds
+
+        feed_path = tmp_path / "urlhaus.txt"
+        feed_path.write_text("http://some-other-host.example/payload.exe\n", encoding="utf-8")
+        monkeypatch.setattr(feeds, "_feed_path", lambda: feed_path)
+        feeds.reload()
+        try:
+            assert "malware_host" not in _ids("https://example.com")
+        finally:
+            feeds.reload()
+
+
 class TestMotorOnlySignals:
     """New signals the motor adds that we had no equivalent for (T8)."""
 

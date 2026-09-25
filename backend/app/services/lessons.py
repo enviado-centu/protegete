@@ -177,9 +177,57 @@ _LESSONS: tuple[Lesson, ...] = (
         example='Chrome muestra "El sitio al que quieres acceder contiene programas dañinos".',
         what_to_do="No ingreses ni sigas navegando ahí. Cerrá la pestaña y, si llegaste por un link, no lo compartas.",
     ),
+    Lesson(
+        id="malicious_ads",
+        icon="📢",
+        title="Publicidad engañosa y pop-ups",
+        how_to_spot=(
+            "El sitio abre ventanas emergentes sin que hagas clic, o carga avisos de redes "
+            "conocidas por publicidad engañosa y descargas falsas."
+        ),
+        example='"Ganaste un iPhone, hacé clic para reclamarlo" en una ventana que se abre sola.',
+        what_to_do="Cerrá esas ventanas sin tocarlas y no instales nada que te ofrezcan. Si insiste, cerrá la pestaña directamente.",
+    ),
+    Lesson(
+        id="hidden_code",
+        icon="🦠",
+        title="Código escondido y mineros",
+        how_to_spot=(
+            "La página esconde código a propósito o usa tu computadora para minar criptomonedas "
+            "sin que lo notes, algo típico de sitios maliciosos."
+        ),
+        example='"Tu PC se pone lenta y el ventilador se acelera apenas entrás al sitio."',
+        what_to_do="Cerrá la pestaña de inmediato y evitá volver a entrar. Si notás esto seguido, pasá un antivirus.",
+    ),
+    Lesson(
+        id="unsafe_forms",
+        icon="📝",
+        title="Formularios que piden contraseña",
+        how_to_spot=(
+            "Te pide tu contraseña en una conexión sin cifrar, o el formulario la envía a un "
+            "sitio distinto del que estás visitando."
+        ),
+        example='"Iniciá sesión" en un sitio "http://" (sin candado) que en realidad es de otra empresa.',
+        what_to_do="No ingreses tu contraseña ahí. Cerrá la página y entrá desde la app oficial o escribiendo vos la dirección.",
+    ),
 )
 
 _LESSONS_BY_ID: dict[str, Lesson] = {lesson.id: lesson for lesson in _LESSONS}
+
+# Maps a fired page-rule id (app.services.page_rules) to the lesson id that
+# best explains it. "third_party_domains" and "tracker_cookies" intentionally
+# have no entry -- too weak/informational on their own to warrant a lesson.
+PAGE_RULE_TO_LESSON_ID: dict[str, str] = {
+    "malvertising": "malicious_ads",
+    "popups": "malicious_ads",
+    "notification_prompt": "malicious_ads",
+    "cryptominer": "hidden_code",
+    "obfuscated_js": "hidden_code",
+    "hidden_iframes": "hidden_code",
+    "offsite_meta_refresh": "hidden_code",
+    "insecure_password_form": "unsafe_forms",
+    "cross_site_password_form": "unsafe_forms",
+}
 
 
 def all_lessons() -> list[Lesson]:

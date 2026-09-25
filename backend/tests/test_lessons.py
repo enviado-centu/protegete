@@ -17,6 +17,9 @@ EXPECTED_IDS = {
     "insecure_site",
     "risky_streaming",
     "malicious_site",
+    "malicious_ads",
+    "hidden_code",
+    "unsafe_forms",
 }
 
 

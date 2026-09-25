@@ -22,6 +22,21 @@ def get_ml_module_path() -> Path:
     return Path(raw).resolve() if raw else DEFAULT_ML_MODULE_PATH
 
 
+DEFAULT_URLHAUS_FEED_PATH = _REPO_ROOT / "backend" / "data" / "urlhaus.txt"
+
+
+def get_urlhaus_feed_path() -> Path:
+    """Filesystem path to the URLhaus malware URL feed (one URL per line).
+
+    Configurable via the URLHAUS_FEED_PATH env var; defaults to
+    backend/data/urlhaus.txt, resolved relative to this file so it works
+    regardless of the process cwd. The file is optional -- see
+    `app.services.feeds`.
+    """
+    raw = os.environ.get("URLHAUS_FEED_PATH")
+    return Path(raw).resolve() if raw else DEFAULT_URLHAUS_FEED_PATH
+
+
 def get_extra_cors_origins() -> list[str]:
     """Additional allowed CORS origins from the EXTRA_CORS_ORIGINS env var.
 

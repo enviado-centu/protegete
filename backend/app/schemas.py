@@ -117,6 +117,63 @@ class AnalyzeTextResponse(BaseModel):
     urls: list[AnalyzeResponse]
 
 
+class PageSignals(BaseModel):
+    """Page-behavior signals collected by extension content scripts.
+
+    Booleans/counts only -- content scripts never send page content or
+    other page text, and this data is never logged (see the privacy note on
+    the `/api/analyze-page` route in `app/main.py`). All fields are optional
+    with safe (inert) defaults and bounded to reject pathological payloads.
+    """
+
+    malvertising: list[str] = Field(default_factory=list, max_length=50)
+    cryptominer: bool = False
+    obfuscated_js: int = Field(default=0, ge=0, le=1000)
+    hidden_iframes: int = Field(default=0, ge=0, le=1000)
+    insecure_password_form: bool = False
+    cross_site_password_form: bool = False
+    notification_prompt: bool = False
+    popups: int = Field(default=0, ge=0, le=1000)
+    offsite_meta_refresh: bool = False
+    third_party_domains: int = Field(default=0, ge=0, le=1000)
+    tracker_cookies: int = Field(default=0, ge=0, le=1000)
+
+
+class PageSignal(BaseModel):
+    """One page-behavior red flag surfaced back to the client (scoring or info-only)."""
+
+    id: str
+    reason: str
+
+
+class AnalyzePageRequest(BaseModel):
+    """Body of POST /api/analyze-page."""
+
+    url: str = Field(..., min_length=1, max_length=MAX_URL_LENGTH)
+    signals: PageSignals = Field(default_factory=PageSignals)
+
+    @field_validator("url")
+    @classmethod
+    def _validate_url(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("url must not be empty")
+        if not has_plausible_host(stripped):
+            raise ValueError("url must have a plausible host")
+        return stripped
+
+
+class AnalyzePageResponse(AnalyzeResponse):
+    """Body of the POST /api/analyze-page response.
+
+    Extends AnalyzeResponse with the page-level signals that fired (scoring
+    and info-only) and the lessons they map to.
+    """
+
+    page_signals: list[PageSignal]
+    lessons: list[Lesson]
+
+
 class ChatContext(BaseModel):
     """Verified verdict context passed alongside a chat question, if any."""
 
