@@ -41,6 +41,41 @@ describe('classifyInput edge cases', () => {
     expect(classifyInput('como se yo si es una estafa')).toBe('question'))
 })
 
+describe('classifyInput conversational follow-ups', () => {
+  const followUps = [
+    'decime más sobre eso',
+    'contame más',
+    'explicame de nuevo',
+    'me explicás mejor',
+    'dónde denuncio esto',
+    'donde denuncio esto',
+    'cuál es el riesgo',
+    'cual es el riesgo',
+    'cuándo pasó esto',
+    'quién me escribió',
+    'puedo confiar en este banco',
+    'debo bloquear la tarjeta',
+    'tengo que llamar al banco',
+    'qué hago ahora',
+    'y si ya hice la transferencia',
+    'y ahora que hago',
+    'entonces es seguro',
+    'porque me pide la clave',
+  ]
+
+  for (const phrase of followUps) {
+    test(`"${phrase}" is a follow-up question`, () => {
+      expect(classifyInput(phrase)).toBe('question')
+    })
+  }
+
+  test('a pasted scam SMS without a question mark is still text', () => {
+    expect(
+      classifyInput('Recibi un mensaje que dice que gane un premio y me pide mis datos'),
+    ).toBe('text')
+  })
+})
+
 describe('matchLessons', () => {
   const lessons: Lesson[] = [
     {

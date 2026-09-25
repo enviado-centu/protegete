@@ -314,6 +314,99 @@ describe('Chat', () => {
   })
 })
 
+describe('Chat follow-up after a verdict', () => {
+  function safeNoEvidenceTextVerdict() {
+    return {
+      level: 'safe' as const,
+      score: 0,
+      category: 'none' as const,
+      reasons: [],
+      tip: 'Todo bien.',
+      signals: [],
+      lessons: [],
+      urls: [],
+    }
+  }
+
+  function dangerTextVerdictWithEvidence() {
+    return {
+      level: 'danger' as const,
+      score: 0.9,
+      category: 'social_engineering' as const,
+      reasons: ['El mensaje pide datos bancarios con urgencia.'],
+      tip: 'No respondas.',
+      signals: [{ id: 'credential_request', evidence: 'pedime tu clave' }],
+      lessons: [],
+      urls: [],
+    }
+  }
+
+  async function sendUrlVerdict() {
+    vi.mocked(api.analyzeUrl).mockResolvedValue({
+      url: 'http://bna-homebanking-verificar.xyz',
+      level: 'danger',
+      score: 0.9,
+      category: 'suspicious_domain',
+      reasons: ['El sitio imita a un banco pero no es su dirección oficial.'],
+      tip: 'No ingreses tus datos ahí.',
+      ml: { probability: 0.9, threshold: 0.5, flagged: true, top_features: [] },
+      rules: [{ id: 'fake_domain', weight: 0.5 }],
+      details: { blacklist: false, whitelist: false, ml_probability: 0.9, reputation: 'unavailable' },
+    })
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, 'bna-homebanking-verificar.xyz')
+    await screen.findByText('Peligroso')
+    return input
+  }
+
+  test('a no-evidence follow-up after a URL verdict keeps the original context and adds no second verdict card', async () => {
+    // Deliberately not a `classifyInput` question starter -- this exercises
+    // the runAnalysis fallback (kind 'text' + no evidence), not the
+    // classifyInput routing covered by chatEngine.test.ts.
+    const followUp = 'avisame si tengo que bloquear la tarjeta'
+    const input = await sendUrlVerdict()
+
+    vi.mocked(api.analyzeText).mockResolvedValue(safeNoEvidenceTextVerdict())
+    vi.mocked(api.askChat).mockResolvedValue({ answer: 'Dale, contame más.', fallback: false })
+    await typeAndSend(input, followUp)
+
+    expect(await screen.findByText('Dale, contame más.')).toBeInTheDocument()
+    expect(screen.getAllByText('Peligroso')).toHaveLength(1)
+    expect(api.askChat).toHaveBeenLastCalledWith(
+      followUp,
+      expect.objectContaining({
+        level: 'danger',
+        category: 'suspicious_domain',
+        url: 'http://bna-homebanking-verificar.xyz',
+      }),
+      expect.any(Array),
+    )
+  })
+
+  test('a follow-up with scam evidence after a URL verdict shows a new verdict card and replaces the context', async () => {
+    const followUp = 'me escribieron pidiendo mi clave del banco, mira esto'
+    vi.mocked(api.analyzeText).mockResolvedValue(dangerTextVerdictWithEvidence())
+    vi.mocked(api.askChat).mockResolvedValue({ answer: null, fallback: true })
+    const input = await sendUrlVerdict()
+
+    await typeAndSend(input, followUp)
+
+    expect(await screen.findByText('El mensaje pide datos bancarios con urgencia.')).toBeInTheDocument()
+    expect(screen.getAllByText('Peligroso')).toHaveLength(2)
+  })
+
+  test('a first message with no prior context is unaffected by the follow-up routing', async () => {
+    vi.mocked(api.analyzeText).mockResolvedValue(safeNoEvidenceTextVerdict())
+    vi.mocked(api.askChat).mockResolvedValue({ answer: null, fallback: true })
+    render(<Chat />)
+    const input = screen.getByRole('textbox', { name: /escribí tu mensaje/i })
+    await typeAndSend(input, 'hola familia les cuento que llego tarde')
+
+    expect(await screen.findByText('Parece seguro')).toBeInTheDocument()
+  })
+})
+
 describe('Chat already-scammed recovery guide', () => {
   beforeEach(() => {
     // This file's api/ocr/qr mocks persist across tests (no clearMocks in

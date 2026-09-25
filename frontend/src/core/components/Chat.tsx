@@ -84,6 +84,19 @@ function contextFromTextVerdict(verdict: TextVerdict): ChatContext {
   }
 }
 
+/** True when a text verdict carries no scam evidence at all (safe level, no
+ * signals/reasons/urls). A "text"-classified follow-up that lands here
+ * (e.g. "decime más sobre eso" after a URL verdict) is conversational, not a
+ * new thing to analyze -- see `hasNoEvidence`'s caller in `runAnalysis`. */
+function hasNoEvidence(verdict: TextVerdict): boolean {
+  return (
+    verdict.level === 'safe' &&
+    verdict.signals.length === 0 &&
+    verdict.reasons.length === 0 &&
+    verdict.urls.length === 0
+  )
+}
+
 type BusyPhase = 'ocr' | 'analyzing' | null
 
 const STATUS_TEXT: Record<Exclude<BusyPhase, null>, string> = {
@@ -282,6 +295,18 @@ export function Chat({
         append({ id: newId(), role: 'assistantA', reply })
       } else {
         const verdict = await analyzeText(text)
+        // A "text"-classified message with an ongoing conversation and no
+        // URL of its own is ambiguous: it could be a new scam sample to
+        // analyze, or a plain follow-up question the classifier's keyword
+        // list didn't catch (e.g. "decime más sobre eso"). When the backend
+        // finds no evidence at all, treat it as the latter: keep the
+        // existing grounded context and route to layer B instead of
+        // showing an empty "Parece seguro" card and losing the
+        // conversation's topic.
+        if (context !== null && !containsUrl(text) && hasNoEvidence(verdict)) {
+          await runQuestion(text)
+          return
+        }
         const reply = decorateQrReply(buildReplyA(verdict, lessonsCatalog), options?.qrOrigin, lessonsCatalog)
         context = contextFromTextVerdict(verdict)
         setLastContext(context)

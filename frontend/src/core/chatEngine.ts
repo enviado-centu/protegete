@@ -7,8 +7,15 @@ export type InputKind = 'url' | 'text' | 'question'
 // or a bare domain (label.label...).
 const URL_TOKEN_RE = /^(https?:\/\/\S+|www\.\S+|[a-z0-9-]+(\.[a-z0-9-]+)+)$/i
 const HAS_URL_RE = /(https?:\/\/\S+|www\.\S+)/i
+// Direct question starters, plus conversational follow-up openers (e.g.
+// "decime más", "y ahora qué hago") that keep an ongoing chat going without
+// re-triggering a new verdict. Accent-insensitive (raw input, not
+// `normalize()`'d, so both accented and bare forms are listed explicitly).
+// `\b` after an accented vowel (e.g. "qué ") doesn't match in a non-unicode
+// JS regex -- accented letters aren't `\w`, so there's no word/non-word
+// transition. Use a lookahead for whitespace/end-of-string instead.
 const QUESTION_START_RE =
-  /^¿?\s*(c[oó]mo|qu[eé]|por qu[eé]|es seguro)\b/i
+  /^¿?\s*(c[oó]mo|qu[eé]|por ?qu[eé]|es seguro|d[oó]nde|cu[aá]l|cu[aá]ndo|qui[eé]n|puedo|debo|tengo que|y si|y ahora|entonces|decime|explicame|contame|me explic[aá]s)(?=\s|$)/i
 
 /**
  * Classifies free-form chat input so the engine knows which backend
