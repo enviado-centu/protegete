@@ -74,9 +74,30 @@ GLOBAL_BRANDS: dict[str, Brand] = {
     "facebook": Brand("Facebook", ("facebook.com",)),
 }
 
+# Official sports/streaming broadcasters -- not "brands" for impersonation
+# matching purposes (no fuzzy/lookalike catalog entry needed), just domains
+# that must short-circuit to "safe" so the pirate_streaming rule below never
+# false-positives on them (e.g. "https://www.tycsports.com/envivo").
+OFFICIAL_STREAMING_DOMAINS: frozenset[str] = frozenset({
+    "tycsports.com",
+    "espn.com.ar",
+    "espn.com",
+    "disneyplus.com",
+    "star.com",
+    "paramountplus.com",
+    "dazn.com",
+    "flow.com.ar",
+    "telefe.com",
+    "tvpublica.com.ar",
+    "directvgo.com",
+    "max.com",
+    "netflix.com",
+    "youtube.com",
+})
+
 GLOBAL_WHITELIST_DOMAINS: frozenset[str] = frozenset(
     domain for brand in GLOBAL_BRANDS.values() for domain in brand.domains
-)
+) | OFFICIAL_STREAMING_DOMAINS
 
 # Brand labels at or below this length require an exact token match for
 # brand_embedded (instead of a plain substring match) to avoid false
@@ -258,6 +279,130 @@ def _evaluate_insecure_http(info: UrlInfo) -> RuleMatch | None:
     return None
 
 
+# --- Pirate streaming (risky_site) --------------------------------------
+#
+# Deterministic, offline family-marker rule for Argentine pirate
+# football/series-streaming sites (futbollibre, rojadirecta, and friends):
+# constantly-hopping domains known for malvertising, fake "play"/download
+# buttons and scam pop-ups, but with no brand to impersonate -- so none of
+# the brand rules above catch them, and the motor has no equivalent either.
+# Not a reputation lookup: this stays 100% local/offline like the rest of
+# `rules.py`. See `app.services.reputation` for the optional online source.
+PIRATE_STREAMING_FAMILY_MARKERS: frozenset[str] = frozenset({
+    "futbollibre",
+    "futbol-libre",
+    "librefutbol",
+    "pelotalibre",
+    "rojadirecta",
+    "tarjetaroja",
+    "tarjetarojatv",
+    "futbolenvivo",
+    "futbolgratis",
+    "verfutbol",
+    "futbollibretv",
+    "pirlotv",
+    "pirlo",
+    "streameast",
+    "crackstreams",
+    "sportsurge",
+    "totalsportek",
+    "vipleague",
+    "vipbox",
+    "hesgoal",
+    "buffstreams",
+    "socceronline",
+    "librefutboltv",
+    "futbollibrehd",
+})
+
+# Weak streaming keywords: low-confidence alone, only meaningful combined
+# with a sports word below. "hd" is deliberately weak-of-the-weak -- it must
+# never count on its own, only alongside another weak keyword (see
+# _evaluate_pirate_streaming).
+_PIRATE_STREAMING_WEAK_KEYWORDS: frozenset[str] = frozenset({
+    "envivo",
+    "gratis",
+    "fullhd",
+    "streaming",
+    "stream",
+    "livetv",
+    "tvonline",
+    "hd",
+})
+_PIRATE_STREAMING_SPORTS_WORDS: frozenset[str] = frozenset({
+    "futbol",
+    "football",
+    "soccer",
+    "partido",
+    "nba",
+    "f1",
+    "boxeo",
+    "ufc",
+})
+
+PIRATE_STREAMING_STRONG_WEIGHT = 0.85
+PIRATE_STREAMING_WEAK_WEIGHT = 0.45
+
+PIRATE_STREAMING_REASON = (
+    "Es un sitio de fútbol o series gratis sin permiso: suelen tener publicidad "
+    "engañosa, botones falsos y virus."
+)
+
+
+def _normalize_streaming_label(label: str) -> str:
+    """Lowercase + homoglyph/digit-substitution + hyphen-stripped label.
+
+    Reuses `normalize_homoglyphs` (already lowercase-only input expected) so
+    "futb0l-libre" and "futbol-libre" both normalize to "futbollibre",
+    matching the family marker of the same name.
+    """
+    return normalize_homoglyphs(label.lower()).replace("-", "")
+
+
+_NORMALIZED_FAMILY_MARKERS: frozenset[str] = frozenset(
+    _normalize_streaming_label(marker) for marker in PIRATE_STREAMING_FAMILY_MARKERS
+)
+
+
+def _evaluate_pirate_streaming(info: UrlInfo) -> RuleMatch | None:
+    """Strong family-marker match (weight 0.85), else a weak keyword +
+    sports-word combination (weight 0.45). Only host labels (registrable
+    domain label + subdomain labels) are checked, never the path -- so a
+    news article mentioning "futbol" in its URL path stays unaffected.
+    """
+    raw_labels = [info.domain_label] + [s for s in info.subdomain.split(".") if s]
+    normalized_labels = [_normalize_streaming_label(label) for label in raw_labels if label]
+
+    for normalized in normalized_labels:
+        if any(marker in normalized for marker in _NORMALIZED_FAMILY_MARKERS):
+            return RuleMatch(
+                id="pirate_streaming",
+                weight=PIRATE_STREAMING_STRONG_WEIGHT,
+                category="risky_site",
+                reason=PIRATE_STREAMING_REASON,
+            )
+
+    matched_weak = {
+        keyword
+        for normalized in normalized_labels
+        for keyword in _PIRATE_STREAMING_WEAK_KEYWORDS
+        if keyword in normalized
+    }
+    # "hd" alone (with no other weak keyword) never counts.
+    has_qualifying_weak_keyword = bool(matched_weak - {"hd"}) or ("hd" in matched_weak and len(matched_weak) > 1)
+    has_sports_word = any(
+        word in normalized for normalized in normalized_labels for word in _PIRATE_STREAMING_SPORTS_WORDS
+    )
+    if has_qualifying_weak_keyword and has_sports_word:
+        return RuleMatch(
+            id="pirate_streaming",
+            weight=PIRATE_STREAMING_WEAK_WEIGHT,
+            category="risky_site",
+            reason=PIRATE_STREAMING_REASON,
+        )
+    return None
+
+
 # --- Motor rule mapping ------------------------------------------------
 #
 # Maps each motor/reglas.py signal id to (our RuleMatch id, weight,
@@ -389,5 +534,10 @@ def evaluate_rules(url: str) -> list[RuleMatch]:
     insecure = _evaluate_insecure_http(info)
     if insecure is not None:
         hits.append(insecure)
+
+    if not whitelisted:
+        pirate = _evaluate_pirate_streaming(info)
+        if pirate is not None:
+            hits.append(pirate)
 
     return hits

@@ -37,6 +37,8 @@ URL_CATEGORY_TO_LESSON_ID: dict[str, str] = {
     "hidden_destination": "hidden_link",
     "insecure": "insecure_site",
     "blacklisted": "fake_domain",
+    "risky_site": "risky_streaming",
+    "malicious": "malicious_site",
 }
 
 _LESSONS: tuple[Lesson, ...] = (
@@ -152,6 +154,28 @@ _LESSONS: tuple[Lesson, ...] = (
         ),
         example='"http://correo-argentino-envios.com/seguimiento"',
         what_to_do="Evitá cargar datos personales o contraseñas en sitios sin 'https://' y candado en la barra de direcciones.",
+    ),
+    Lesson(
+        id="risky_streaming",
+        icon="⚽",
+        title="Sitios de fútbol o series gratis",
+        how_to_spot=(
+            "Páginas que ofrecen ver fútbol, series o películas gratis sin permiso suelen tener "
+            "botones de 'Ver' falsos, publicidad engañosa y ventanas que instalan virus."
+        ),
+        example='"futbollibrefullhd.org" prometiendo ver Boca-River gratis en vivo.',
+        what_to_do="No hagas clic en los botones de 'Ver' ni descargues nada. Mirá los partidos en plataformas oficiales.",
+    ),
+    Lesson(
+        id="malicious_site",
+        icon="☠️",
+        title="Sitios marcados como peligrosos",
+        how_to_spot=(
+            "Servicios de seguridad como Google ya identificaron este sitio como fuente de "
+            "virus o engaños; el navegador suele mostrar una advertencia roja antes de entrar."
+        ),
+        example='Chrome muestra "El sitio al que quieres acceder contiene programas dañinos".',
+        what_to_do="No ingreses ni sigas navegando ahí. Cerrá la pestaña y, si llegaste por un link, no lo compartas.",
     ),
 )
 

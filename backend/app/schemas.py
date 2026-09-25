@@ -49,11 +49,18 @@ class Details(BaseModel):
 
     `ml_probability` mirrors `ml.probability` (kept here too so a client can
     read the raw model score without digging into the `ml` sub-object).
+
+    `reputation` (additive): the optional Google Safe Browsing v4 Lookup
+    result -- `"flagged"` (Google has it as malware/phishing/etc.),
+    `"clean"` (checked, no match) or `"unavailable"` (no API key
+    configured, or the lookup failed/timed out). See
+    `app/services/reputation.py`.
     """
 
     blacklist: bool
     whitelist: bool
     ml_probability: float
+    reputation: str
 
 
 class AnalyzeResponse(BaseModel):

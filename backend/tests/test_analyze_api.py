@@ -84,7 +84,7 @@ def test_response_shape_matches_contract(client) -> None:
     body = response.json()
     assert set(body.keys()) == {"url", "level", "score", "category", "reasons", "tip", "ml", "rules", "details"}
     assert set(body["ml"].keys()) == {"probability", "threshold", "flagged", "top_features"}
-    assert set(body["details"].keys()) == {"blacklist", "whitelist", "ml_probability"}
+    assert set(body["details"].keys()) == {"blacklist", "whitelist", "ml_probability", "reputation"}
     for rule in body["rules"]:
         assert set(rule.keys()) == {"id", "weight"}
 
@@ -169,6 +169,7 @@ def test_details_block_matches_whitelist_and_blacklist_flags(client) -> None:
         "blacklist": False,
         "whitelist": True,
         "ml_probability": whitelisted["ml"]["probability"],
+        "reputation": "unavailable",
     }
 
     blacklisted = client.post(
@@ -176,6 +177,53 @@ def test_details_block_matches_whitelist_and_blacklist_flags(client) -> None:
     ).json()
     assert blacklisted["details"]["blacklist"] is True
     assert blacklisted["details"]["whitelist"] is False
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://futbollibrefullhd.org/",
+        "http://futbol-libre.net",
+        "https://rojadirecta.me",
+        "https://pelotalibre.tv/partido",
+    ],
+)
+def test_pirate_streaming_family_domains_are_danger(client, url) -> None:
+    response = client.post("/api/analyze", json={"url": url})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] == "danger"
+    assert body["category"] == "risky_site"
+    assert body["reasons"]
+
+
+def test_official_broadcaster_envivo_is_safe(client) -> None:
+    response = client.post("/api/analyze", json={"url": "https://www.tycsports.com/envivo"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] == "safe"
+
+
+def test_weak_streaming_keywords_are_at_least_caution(client) -> None:
+    response = client.post("/api/analyze", json={"url": "https://futbolgratisenvivo.xyz"})
+    assert response.status_code == 200
+    body = response.json()
+    assert body["level"] in ("caution", "danger")
+
+
+def test_news_site_with_sports_word_is_not_danger(client) -> None:
+    response = client.post(
+        "/api/analyze", json={"url": "https://www.lanacion.com.ar/deportes/futbol"}
+    )
+    assert response.status_code == 200
+    assert response.json()["level"] != "danger"
+
+
+def test_single_weak_streaming_keyword_does_not_fire_pirate_rule(client) -> None:
+    response = client.post("/api/analyze", json={"url": "https://streaming.example.com"})
+    assert response.status_code == 200
+    body = response.json()
+    assert "pirate_streaming" not in {r["id"] for r in body["rules"]}
 
 
 def test_no_duplicated_reasons_for_a_brand_and_weak_signals(client) -> None:

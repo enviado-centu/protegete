@@ -21,7 +21,10 @@ Scoring, in five lines (see also backend/README.md):
 
 from __future__ import annotations
 
+import httpx
+
 from app.schemas import AnalyzeResponse, Details, MLInfo, RuleHit
+from app.services import reputation
 from app.services.ml_model import PhishingModel
 from app.services.rules import RuleMatch, evaluate_rules, is_whitelisted
 from app.services.urlinfo import parse_url
@@ -79,7 +82,11 @@ TIPS_BY_CATEGORY: dict[str, str] = {
     "hidden_destination": "Los links acortados ocultan su destino real: fijate a dónde llevan antes de hacer clic.",
     "insecure": "Evitá ingresar datos personales en sitios sin conexión segura (https).",
     "blacklisted": "Este sitio fue reportado como fraudulento: no ingreses datos ni sigas navegando en él.",
+    "risky_site": "No hagas clic en los botones de 'Ver' ni descargues nada. Mirá los partidos en plataformas oficiales.",
+    "malicious": "Este sitio fue marcado como peligroso: no ingreses datos ni sigas navegando en él.",
 }
+
+REPUTATION_FLAGGED_REASON = "Google lo tiene registrado como sitio peligroso (engaño o virus)."
 DEFAULT_UNSAFE_TIP = "Revisá bien la dirección antes de ingresar datos personales."
 SAFE_TIP = "No se detectaron señales de phishing, pero igual revisá la dirección antes de ingresar datos sensibles."
 
@@ -137,11 +144,29 @@ def _tip_for(level: str, category: str) -> str:
     return TIPS_BY_CATEGORY.get(category, DEFAULT_UNSAFE_TIP)
 
 
-def analyze(url: str, model: PhishingModel) -> AnalyzeResponse:
-    """Runs the rules engine and the ML model, then combines them into one verdict."""
+def analyze(url: str, model: PhishingModel, *, reputation_client: httpx.Client | None = None) -> AnalyzeResponse:
+    """Runs the rules engine, the ML model and the optional reputation source, then combines them into one verdict.
+
+    `reputation_client` can be injected for tests (`httpx.MockTransport`);
+    it's otherwise unused (see `app.services.reputation.lookup`) since the
+    real Safe Browsing API is only called when `GOOGLE_SAFE_BROWSING_API_KEY`
+    is configured.
+    """
     info = parse_url(url)
     rules = evaluate_rules(url)
     prediction = model.predict(url)
+
+    reputation_status = reputation.lookup(url, client=reputation_client)
+    if reputation_status == reputation.FLAGGED:
+        rules = [
+            *rules,
+            RuleMatch(
+                id="reputation_flagged",
+                weight=1.0,
+                category="malicious",
+                reason=REPUTATION_FLAGGED_REASON,
+            ),
+        ]
 
     blacklisted = any(r.id == "blacklisted" for r in rules)
     whitelisted = is_whitelisted(info)
@@ -195,5 +220,6 @@ def analyze(url: str, model: PhishingModel) -> AnalyzeResponse:
             blacklist=blacklisted,
             whitelist=whitelisted,
             ml_probability=prediction.probability,
+            reputation=reputation_status,
         ),
     )

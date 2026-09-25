@@ -69,13 +69,17 @@ def test_blacklist_works_without_the_optional_feed_file(monkeypatch) -> None:
         motor_listas.recargar()  # restore caches built off the real feed path
 
 
-def test_feed_file_is_absent_in_this_checkout() -> None:
-    """Sanity check that the scenario above reflects the real environment:
-    MODULO-PY/motor/datos/lista_negra_feed.txt is gitignored and not
-    downloaded by default (see motor/actualizar_lista_negra.py), so the
-    backend must -- and does -- work without it.
+def test_feed_file_is_optional_and_non_empty_when_present() -> None:
+    """MODULO-PY/motor/datos/lista_negra_feed.txt is gitignored and optional --
+    it's refreshed on demand (`cd MODULO-PY && uv run python -m
+    motor.actualizar_lista_negra`, see backend/README.md), never downloaded
+    automatically at request time. The sibling test above already proves
+    blacklist lookups work fine when it's absent (feed path patched away);
+    this only checks that when it *is* present (as in this checkout, ~300
+    OpenPhish URLs), it's not an empty/corrupt file.
     """
     from app.config import get_ml_module_path
 
     feed_path = get_ml_module_path() / "motor" / "datos" / "lista_negra_feed.txt"
-    assert not Path(feed_path).exists()
+    if Path(feed_path).exists():
+        assert Path(feed_path).stat().st_size > 0

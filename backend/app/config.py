@@ -55,3 +55,28 @@ def get_ollama_timeout_s() -> float:
         return float(raw)
     except ValueError:
         return DEFAULT_OLLAMA_TIMEOUT_S
+
+
+DEFAULT_SAFE_BROWSING_TIMEOUT_S = 2.0
+
+
+def get_google_safe_browsing_api_key() -> str | None:
+    """API key for the optional Google Safe Browsing v4 Lookup API.
+
+    Reputation lookups (`app/services/reputation.py`) are disabled entirely
+    (no network call) unless this env var is set. Get a key at Google Cloud
+    Console -> enable the "Safe Browsing API" -> create an API key. See
+    backend/README.md.
+    """
+    return os.environ.get("GOOGLE_SAFE_BROWSING_API_KEY") or None
+
+
+def get_safe_browsing_timeout_s() -> float:
+    """Request timeout (seconds) for Safe Browsing calls. Configurable via SAFE_BROWSING_TIMEOUT_S."""
+    raw = os.environ.get("SAFE_BROWSING_TIMEOUT_S")
+    if not raw:
+        return DEFAULT_SAFE_BROWSING_TIMEOUT_S
+    try:
+        return float(raw)
+    except ValueError:
+        return DEFAULT_SAFE_BROWSING_TIMEOUT_S

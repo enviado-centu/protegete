@@ -40,13 +40,47 @@ mechanism as the ML model adapter) and exposes a small typed interface to
 `app/services/rules.py` keeps only what the motor does **not** cover:
 homoglyph/typo (Levenshtein) brand lookalikes (e.g. `mercad0pago.com.ar`,
 `ua1a.com.ar` -- the motor only does exact/substring matching, no homoglyph
-normalization or edit distance), the plain HTTP check, and a small,
-explicitly documented fallback brand list (`GLOBAL_BRANDS` in `rules.py`)
-for global tech brands the motor's Argentine-focused whitelist doesn't
-carry at all (google, paypal, microsoft, apple, netflix, whatsapp,
-instagram, facebook) -- without it, `docs.google.com` would lose its
+normalization or edit distance), the plain HTTP check, a deterministic
+pirate-streaming family-marker rule (see below), and a small, explicitly
+documented fallback brand/whitelist list (`GLOBAL_BRANDS` /
+`OFFICIAL_STREAMING_DOMAINS` in `rules.py`) for global tech brands and
+official sports broadcasters the motor's Argentine-focused whitelist
+doesn't carry at all (google, paypal, microsoft, apple, netflix, whatsapp,
+instagram, facebook, tycsports.com, espn.com/.com.ar, disneyplus.com,
+star.com, paramountplus.com, dazn.com, flow.com.ar, telefe.com,
+tvpublica.com.ar, directvgo.com, max.com, youtube.com) -- without it,
+`docs.google.com` and `www.tycsports.com/envivo` would lose their
 whitelist short-circuit. See the module docstring in `rules.py` for the
 full rule-by-rule overlap map.
+
+### Pirate-streaming sites (`risky_site`) and reputation (`malicious`)
+
+Sites like `futbollibrefullhd.org` (an Argentine pirate football-streaming
+site, a family known for malvertising, fake "play"/download buttons and
+scam pop-ups that constantly hop domains) have no brand to impersonate, so
+none of the rules above catch them. `app/services/rules.py` adds a
+deterministic, fully offline `pirate_streaming` rule (category
+`risky_site`): a strong match against ~24 known family markers
+(`futbollibre`, `rojadirecta`, `pelotalibre`, `streameast`,
+`crackstreams`, ...) on the host's domain/subdomain labels (never the
+path, so a news article merely mentioning "futbol" stays unaffected), or a
+weaker match combining a streaming keyword (`envivo`, `gratis`,
+`streaming`, ...) with a sports word (`futbol`, `nba`, `f1`, ...) -- a
+single weak keyword alone never fires.
+
+Separately, `app/services/reputation.py` adds an **optional** online
+reputation source: the Google Safe Browsing v4 Lookup API, the same
+database Chrome/Edge (Google Safe Browsing) and, indirectly, Microsoft
+SmartScreen use to flag dangerous sites. It's disabled by default (no
+network call at all) and only activates when `GOOGLE_SAFE_BROWSING_API_KEY`
+is set -- get a free key at [Google Cloud
+Console](https://console.cloud.google.com/) → APIs & Services → enable
+**"Safe Browsing API"** → Credentials → create an API key. A match maps to
+rule id `reputation_flagged` (category `malicious`, weight 1.0). Requests
+time out after 2s, results are cached in-memory for 10 minutes (max 1000
+URLs), and any error (missing key, network failure, timeout, malformed
+response) degrades to `"unavailable"` -- a reputation lookup can never
+break `/api/analyze`. The looked-up URL is never logged.
 
 ### Refreshing the blacklist feed
 
@@ -58,8 +92,11 @@ cd ../MODULO-PY
 uv run python -m motor.actualizar_lista_negra
 ```
 
-This writes `motor/datos/lista_negra_feed.txt`. The backend picks it up on
-next process start (motor caches its lists in-process).
+This writes `motor/datos/lista_negra_feed.txt` (currently ~300 OpenPhish
+URLs in this checkout). The backend picks it up on next process start
+(motor caches its lists in-process). It is **not** downloaded automatically
+at request time or on backend startup -- refresh it manually, on a
+schedule you control.
 
 ## Run
 
@@ -76,6 +113,8 @@ uv run uvicorn app.main:app --reload --port 8000
 | `OLLAMA_URL` | `http://localhost:11434` | Base URL of the Ollama server used by `POST /api/chat` (layer B). |
 | `OLLAMA_MODEL` | `nemotron-3-nano:30b-cloud` | Ollama model name. Runs on Ollama Cloud (chosen for the demo machine's 8 GB RAM): chat text sent to layer B leaves the device, but only the user's question plus the already-verified signals, never the raw analyzed URL/message from layer A. |
 | `OLLAMA_TIMEOUT_S` | `8` | Request timeout (seconds) for Ollama calls. On timeout or any error, `/api/chat` falls back to `{"answer": null, "fallback": true}` instead of failing. |
+| `GOOGLE_SAFE_BROWSING_API_KEY` | (unset) | Enables the optional Google Safe Browsing v4 Lookup reputation source (`app/services/reputation.py`). Unset by default: no network call is ever made. Get a key at Google Cloud Console → enable "Safe Browsing API". |
+| `SAFE_BROWSING_TIMEOUT_S` | `2` | Request timeout (seconds) for Safe Browsing calls. On timeout or any error, the lookup degrades to `"unavailable"` instead of failing `/api/analyze`. |
 
 ## API
 
@@ -123,7 +162,8 @@ Response:
   "details": {
     "blacklist": false,
     "whitelist": false,
-    "ml_probability": 0.5041827088330316
+    "ml_probability": 0.5041827088330316,
+    "reputation": "unavailable"
   }
 }
 ```
@@ -133,12 +173,15 @@ The URL scheme is optional (`mercad0pago.com.ar` works). Empty, overlong
 
 `level` is `safe` (score < 0.4), `caution` (0.4-0.7) or `danger` (> 0.7).
 `category` is `impersonation`, `suspicious_domain`, `hidden_destination`,
-`insecure`, `blacklisted` (T8: an exact match in the motor's blacklist) or
-`none`.
+`insecure`, `blacklisted` (T8: an exact match in the motor's blacklist),
+`risky_site` (pirate-streaming family marker), `malicious` (Google Safe
+Browsing match) or `none`.
 
 `details` (T8, additive) is machine-readable, for clients that don't want to
 parse `reasons`/`rules`: `blacklist`/`whitelist` are whether the motor's
-lists matched, and `ml_probability` mirrors `ml.probability`.
+lists matched, `ml_probability` mirrors `ml.probability`, and `reputation`
+is `"flagged"` / `"clean"` / `"unavailable"` from the optional Safe
+Browsing lookup (see "Pirate-streaming sites and reputation" above).
 
 ### `POST /api/analyze-text`
 
@@ -233,7 +276,7 @@ Safe example (`{"text": "Hola, como estas? Nos vemos mañana"}`):
 
 ### `GET /api/lessons`
 
-Returns the static red-flag lesson catalog (10 lessons, Spanish, `id, icon,
+Returns the static red-flag lesson catalog (12 lessons, Spanish, `id, icon,
 title, how_to_spot, example, what_to_do`), each ≤ 60 words across
 `how_to_spot` + `what_to_do`:
 
@@ -251,8 +294,9 @@ curl -s localhost:8000/api/lessons
     "example": "\"URGENTE: tu cuenta de Mercado Pago será suspendida en 24 horas.\"",
     "what_to_do": "Respirá y no hagas clic todavía. Entrá a la app o al sitio oficial escribiendo vos la dirección, sin usar el link del mensaje."
   }
-  /* ... 9 more: credential_request, money_request, prize, brand_impersonation,
-     suspicious_link, impersonal_greeting, fake_domain, hidden_link, insecure_site */
+  /* ... 11 more: credential_request, money_request, prize, brand_impersonation,
+     suspicious_link, impersonal_greeting, fake_domain, hidden_link, insecure_site,
+     risky_streaming, malicious_site */
 ]
 ```
 
@@ -311,6 +355,12 @@ No message content, URL or verdict is ever logged or persisted.
 7. A blacklist hit (T8) short-circuits straight to `danger` / score `1.0` /
    category `blacklisted`, with a single reason -- symmetric to the
    whitelist short-circuit to `safe`.
+8. A pirate-streaming family-marker match (`pirate_streaming`, weight 0.85)
+   or a Safe Browsing reputation match (`reputation_flagged`, weight 1.0)
+   are neither weak signals nor whitelist/blacklist short-circuits -- they
+   flow through the normal `max(rule weight, ML score)` scoring like any
+   other rule, so a genuinely high ML score can only ever push the final
+   score up, never down below what these rules already guarantee.
 
 ## Privacy
 

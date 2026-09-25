@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from app.services.rules import (
     evaluate_rules,
     is_whitelisted,
@@ -205,6 +207,67 @@ class TestOtherRules:
 
     def test_no_rules_fire_for_a_plain_safe_domain(self) -> None:
         assert evaluate_rules("https://example.com") == []
+
+
+class TestPirateStreaming:
+    """New family-marker rule for Argentine pirate football-streaming sites
+    (deterministic, offline -- no reputation source needed for the strong
+    family markers)."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://futbollibrefullhd.org/",
+            "http://futbol-libre.net",
+            "https://rojadirecta.me",
+            "https://pelotalibre.tv/partido",
+        ],
+    )
+    def test_strong_family_marker_fires_as_risky_site(self, url: str) -> None:
+        hits = {h.id: h for h in evaluate_rules(url)}
+        assert "pirate_streaming" in hits
+        hit = hits["pirate_streaming"]
+        assert hit.weight == 0.85
+        assert hit.category == "risky_site"
+        assert hit.reason
+
+    def test_marker_matches_as_prefix_of_a_longer_label(self) -> None:
+        # "futbollibrefullhd" contains the "futbollibre" family marker as a
+        # substring, not an exact label match.
+        hits = {h.id: h for h in evaluate_rules("https://futbollibrefullhd.org/")}
+        assert hits["pirate_streaming"].weight == 0.85
+
+    def test_marker_in_subdomain_fires(self) -> None:
+        assert "pirate_streaming" in _ids("https://pirlotv.example-mirror.com")
+
+    def test_weak_streaming_keyword_alone_never_fires(self) -> None:
+        # A single weak keyword ("stream"/"streaming") with no sports word
+        # must never fire the rule by itself.
+        assert "pirate_streaming" not in _ids("https://streaming.example.com")
+
+    def test_official_broadcaster_is_whitelisted_and_safe(self) -> None:
+        hits = evaluate_rules("https://www.tycsports.com/envivo")
+        assert "pirate_streaming" not in {h.id for h in hits}
+
+    def test_news_site_with_sports_word_in_path_only_does_not_fire(self) -> None:
+        # The rule only looks at host labels (domain + subdomains), never the
+        # path, so a legitimate news URL with "futbol" in the path is safe.
+        assert "pirate_streaming" not in _ids("https://www.lanacion.com.ar/deportes/futbol")
+
+    def test_skipped_for_whitelisted_domain(self) -> None:
+        assert "pirate_streaming" not in _ids("https://espn.com/futbol")
+
+    def test_weak_keyword_combined_with_sports_word_fires_as_caution(self) -> None:
+        # "streamingfutbolhd" hits no strong family marker, only the weak
+        # "streaming"/"hd" keywords plus the "futbol" sports word.
+        hits = {h.id: h for h in evaluate_rules("https://streamingfutbolhd.xyz")}
+        assert "pirate_streaming" in hits
+        assert hits["pirate_streaming"].weight == 0.45
+        assert hits["pirate_streaming"].category == "risky_site"
+
+    def test_hd_keyword_alone_with_sports_word_does_not_fire(self) -> None:
+        # "hd" only counts combined with *another* weak keyword, not alone.
+        assert "pirate_streaming" not in _ids("https://futbolhd.example.com")
 
 
 class TestBlacklist:

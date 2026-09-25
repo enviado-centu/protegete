@@ -15,6 +15,8 @@ EXPECTED_IDS = {
     "fake_domain",
     "hidden_link",
     "insecure_site",
+    "risky_streaming",
+    "malicious_site",
 }
 
 

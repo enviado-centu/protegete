@@ -2,7 +2,22 @@
 
 from __future__ import annotations
 
+import httpx
+import pytest
+
+from app.services import reputation
 from app.services.analyzer import analyze
+
+
+@pytest.fixture(autouse=True)
+def _clear_reputation_cache():
+    reputation.clear_cache()
+    yield
+    reputation.clear_cache()
+
+
+def _mock_client(handler: object) -> httpx.Client:
+    return httpx.Client(transport=httpx.MockTransport(handler))
 
 
 def test_pure_rule_hit_overrides_a_low_ml_score(fake_model) -> None:
@@ -109,6 +124,34 @@ def test_details_block_reflects_whitelist_and_ml_probability(fake_model) -> None
     assert result.details.ml_probability == 0.741
 
 
+def test_reputation_unavailable_by_default_no_key_configured(fake_model, monkeypatch) -> None:
+    monkeypatch.delenv("GOOGLE_SAFE_BROWSING_API_KEY", raising=False)
+    fake_model._probability = 0.05
+    result = analyze("https://example.com", fake_model)
+    assert result.details.reputation == "unavailable"
+    assert "reputation_flagged" not in {r.id for r in result.rules}
+
+
+def test_reputation_match_is_danger_and_malicious(fake_model, monkeypatch) -> None:
+    monkeypatch.setenv("GOOGLE_SAFE_BROWSING_API_KEY", "test-key")
+    fake_model._probability = 0.0
+    client = _mock_client(lambda req: httpx.Response(200, json={"matches": [{"threatType": "MALWARE"}]}))
+    result = analyze("https://example.com", fake_model, reputation_client=client)
+    assert result.level == "danger"
+    assert result.category == "malicious"
+    assert result.details.reputation == "flagged"
+    assert any(r.id == "reputation_flagged" and r.weight == 1.0 for r in result.rules)
+
+
+def test_reputation_error_is_unavailable_and_analysis_still_returns(fake_model, monkeypatch) -> None:
+    monkeypatch.setenv("GOOGLE_SAFE_BROWSING_API_KEY", "test-key")
+    fake_model._probability = 0.05
+    client = _mock_client(lambda req: httpx.Response(500))
+    result = analyze("https://example.com", fake_model, reputation_client=client)
+    assert result.details.reputation == "unavailable"
+    assert result.level == "safe"
+
+
 def test_details_block_default_is_all_clear(fake_model) -> None:
     fake_model._probability = 0.05
     result = analyze("https://example.com", fake_model)
@@ -134,6 +177,31 @@ def test_independent_high_ml_score_not_suppressed_by_weak_rule_cap(fake_model) -
     fake_model._probability = 0.99
     result = analyze("http://some-random-domain.xyz", fake_model)
     assert result.level == "danger"
+
+
+def test_pirate_streaming_strong_match_is_danger_even_with_low_ml_probability(fake_model) -> None:
+    fake_model._probability = 0.05
+    result = analyze("https://futbollibrefullhd.org/", fake_model)
+    assert result.level == "danger"
+    assert result.category == "risky_site"
+    assert any(r.id == "pirate_streaming" and r.weight == 0.85 for r in result.rules)
+    assert result.reasons
+
+
+def test_pirate_streaming_not_capped_by_the_weak_rule_cap(fake_model) -> None:
+    # http://futbol-libre.net also fires insecure_http (weak); the weak-rule
+    # cap must not apply since pirate_streaming (0.85) isn't a weak rule.
+    fake_model._probability = 0.0
+    result = analyze("http://futbol-libre.net", fake_model)
+    assert result.level == "danger"
+    assert result.score > 0.7
+
+
+def test_pirate_streaming_official_broadcaster_stays_safe(fake_model) -> None:
+    fake_model._probability = 0.9
+    result = analyze("https://www.tycsports.com/envivo", fake_model)
+    assert result.level == "safe"
+    assert result.category == "none"
 
 
 class TestMlFlaggedReason:
